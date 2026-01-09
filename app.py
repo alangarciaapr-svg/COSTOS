@@ -46,17 +46,18 @@ def get_machine_inputs(prefix, hours_month):
         with col2:
             fuel_consump = st.number_input(f"Consumo Petróleo (L/hr) {prefix}", value=20.0 if prefix=="Harvester" else 15.0, step=1.0)
             
-        # 2. OPERADORES (NUEVO: Cantidad y Sueldo Unitario)
-        st.markdown("##### 👷‍♂️ Operadores")
+        # 2. OPERADORES (CORREGIDO: Se agregó {prefix} al label para evitar duplicados)
+        st.markdown(f"##### 👷‍♂️ Operadores {prefix}")
         col_op1, col_op2, col_op3 = st.columns([1, 1, 1])
         with col_op1:
             # Por defecto Harvester tiene 2 turnos (2 op), Forwarder 1 turno (1 op)
             num_operators = st.number_input(f"N° Operadores {prefix}", value=2 if prefix=="Harvester" else 1, step=1, min_value=0)
         with col_op2:
-            salary_per_op = st.number_input(f"Sueldo por Operador ($)", value=1923721, step=50000)
+            # AQUI ESTABA EL ERROR: Agregué 'key' y 'label' únicos usando el prefix
+            salary_per_op = st.number_input(f"Sueldo por Operador {prefix} ($)", value=1923721, step=50000, key=f"salary_{prefix}")
         with col_op3:
             total_salary = num_operators * salary_per_op
-            st.metric(label="Costo Total Operadores", value=f"${total_salary:,.0f}")
+            st.metric(label=f"Costo Total Operadores {prefix}", value=f"${total_salary:,.0f}")
 
         # 3. MANTENCIÓN Y CONSUMIBLES
         st.markdown("##### 🔧 Mantención y Otros")
