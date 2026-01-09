@@ -15,16 +15,15 @@ def fmt(x):
     return x
 
 # --- FUNCIÓN PARA OBTENER UF ---
-@st.cache_data(ttl=3600) # Guardar en caché por 1 hora para no llamar a la API a cada rato
+@st.cache_data(ttl=3600)
 def get_uf_value():
     try:
         url = "https://mindicador.cl/api/uf"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
-            # El valor más reciente está en la primera posición de la serie
             valor = data['serie'][0]['valor']
-            fecha = data['serie'][0]['fecha'][:10] # Formato YYYY-MM-DD
+            fecha = data['serie'][0]['fecha'][:10]
             return valor, fecha
     except Exception as e:
         return None, None
@@ -36,26 +35,35 @@ st.title("🌲 Calculadora de Costos Harvester y Forwarder (M3 y MR)")
 # --- BARRA LATERAL ---
 st.sidebar.header("1. Parámetros Económicos")
 
-# Lógica de UF Automática
+# UF
 uf_api, fecha_api = get_uf_value()
-
-use_auto_uf = st.sidebar.checkbox("Usar UF del Banco Central", value=True, help="Intenta descargar el valor actual de la UF desde mindicador.cl")
+use_auto_uf = st.sidebar.checkbox("Usar UF del Banco Central", value=True)
 
 if use_auto_uf and uf_api:
     uf_value = st.sidebar.number_input(f"Valor UF ({fecha_api})", value=uf_api, disabled=True, format="%.2f")
-    st.sidebar.success(f"✅ UF Actualizada: ${uf_api:,.2f}")
 else:
-    if use_auto_uf and not uf_api:
-        st.sidebar.warning("⚠️ No se pudo conectar a la API. Usando modo manual.")
     uf_value = st.sidebar.number_input("Valor UF (Manual)", value=39704.93, step=100.0, format="%.2f")
 
 fuel_price = st.sidebar.number_input("Precio Petróleo ($/L)", value=774, step=10)
 
-# SECCIÓN COMERCIAL (NUEVA)
+# SECCIÓN COMERCIAL (MODIFICADA)
 st.sidebar.header("2. Comercial y Conversión")
-st.sidebar.markdown("Configura la transformación de **M3 Sólido** a **Metro Ruma (MR)**.")
-conversion_factor = st.sidebar.number_input("Factor Conversión (M3 a MR)", value=1.60, step=0.01, help="Fórmula: M3 * Factor = MR. Ej: 1 m3 sólido equivale a 1.6 m3 estéreos (MR).")
-sales_price_mr = st.sidebar.number_input("Valor Venta ($/MR)", value=4500, step=100, help="Precio de venta por Metro Ruma")
+st.sidebar.markdown("Configura la transformación de M3 a MR y la venta.")
+
+# Fórmula corregida M3 / Factor = MR
+conversion_factor = st.sidebar.number_input("Factor Conversión (M3 / Factor = MR)", value=0.65, step=0.01, format="%.2f", help="Fórmula: M3 Sólido dividido por este factor da los Metros Ruma. Ej: Si el factor es 0.65 (densidad), entonces 1 / 0.65 = 1.54 MR.")
+sales_price_mr = st.sidebar.number_input("Valor Venta Total ($/MR)", value=4500, step=100, help="Precio de venta total por Metro Ruma")
+
+st.sidebar.markdown("**Distribución de la Venta**")
+st.sidebar.caption("Define qué % del precio de venta se asigna a cada máquina.")
+h_rev_pct = st.sidebar.slider("% Venta para Harvester", 0, 100, 70, help="El porcentaje restante será para el Forwarder")
+f_rev_pct = 100 - h_rev_pct
+
+# Precios asignados
+h_price_mr = sales_price_mr * (h_rev_pct / 100)
+f_price_mr = sales_price_mr * (f_rev_pct / 100)
+
+st.sidebar.info(f"Harvester: ${fmt(h_price_mr)}/MR | Forwarder: ${fmt(f_price_mr)}/MR")
 
 st.sidebar.header("3. Configuración de Jornada")
 
@@ -148,82 +156,88 @@ system_cost_hr = h_cost_hr + f_cost_hr
 st.divider()
 st.subheader("📊 Resultados Generales")
 
-# Métricas Principales con Cálculo de MR
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Costo Sistema ($/Hora)", f"${fmt(system_cost_hr)}")
-
-# Cálculo base para margen: Supongamos una productividad promedio de referencia (ej: 25 m3/hr)
-# Esto es solo para mostrar un valor "snapshot", el detalle está en la tabla
-ref_prod_m3 = 25 
-ref_prod_mr = ref_prod_m3 * conversion_factor
-ref_cost_mr = system_cost_hr / ref_prod_mr if ref_prod_mr > 0 else 0
-ref_margin = (sales_price_mr - ref_cost_mr) / sales_price_mr if sales_price_mr > 0 else 0
-
-col2.metric("Valor UF Hoy", f"${fmt(uf_value)}")
-col3.metric("Factor Conversión", f"{conversion_factor:.2f}")
+col1.metric("Costo Sistema Total ($/Hora)", f"${fmt(system_cost_hr)}")
+col2.metric("Valor UF", f"${fmt(uf_value)}")
+col3.metric("Factor (M3/Factor=MR)", f"{conversion_factor:.2f}")
 col4.metric("Precio Venta (MR)", f"${fmt(sales_price_mr)}")
 
-# --- TABLA DE SENSIBILIDAD CON MARGEN ---
-st.subheader("📈 Análisis de Rentabilidad y Conversión")
-st.markdown(f"**Fórmula:** M3 Sólido * {conversion_factor} = Metro Ruma (MR)")
+# --- TABLA DE SENSIBILIDAD ---
+st.subheader("📈 Rentabilidad por Máquina")
+st.markdown(f"**Distribución de Ingresos:** Harvester **{h_rev_pct}%** (${fmt(h_price_mr)}) | Forwarder **{f_rev_pct}%** (${fmt(f_price_mr)})")
 
 prod_m3_range = np.arange(10, 51, 1)
 
 data_rows = []
 for p_m3 in prod_m3_range:
-    # Conversiones
-    p_mr = p_m3 * conversion_factor
+    # Conversión Corregida: M3 / Factor = MR
+    p_mr = p_m3 / conversion_factor if conversion_factor != 0 else 0
     
-    # Costos Unitarios
-    cost_sys_m3 = system_cost_hr / p_m3 if p_m3 > 0 else 0
-    cost_sys_mr = system_cost_hr / p_mr if p_mr > 0 else 0 # Costo por MR es menor porque hay más unidades MR
+    # 1. Costos Unitarios por MR
+    cost_h_mr = h_cost_hr / p_mr if p_mr > 0 else 0
+    cost_f_mr = f_cost_hr / p_mr if p_mr > 0 else 0
+    cost_sys_mr = cost_h_mr + cost_f_mr
     
-    # Margen
-    margin_value = sales_price_mr - cost_sys_mr
-    margin_pct = (margin_value / sales_price_mr * 100) if sales_price_mr > 0 else 0
+    # 2. Utilidad por MR (Precio Asignado - Costo)
+    margin_h = h_price_mr - cost_h_mr
+    margin_f = f_price_mr - cost_f_mr
+    margin_sys = sales_price_mr - cost_sys_mr
+    
+    # 3. Margen %
+    pct_h = (margin_h / h_price_mr * 100) if h_price_mr > 0 else 0
+    pct_f = (margin_f / f_price_mr * 100) if f_price_mr > 0 else 0
+    pct_sys = (margin_sys / sales_price_mr * 100) if sales_price_mr > 0 else 0
     
     data_rows.append({
         "Prod. M3/hr": p_m3,
         "Prod. MR/hr": p_mr,
-        "Costo Sistema ($/M3)": cost_sys_m3,
-        "Costo Sistema ($/MR)": cost_sys_mr,
-        "Utilidad ($/MR)": margin_value,
-        "Margen (%)": margin_pct
+        "Costo H ($/MR)": cost_h_mr,
+        "Utilidad H ($/MR)": margin_h,
+        "Margen H (%)": pct_h,
+        "Costo F ($/MR)": cost_f_mr,
+        "Utilidad F ($/MR)": margin_f,
+        "Margen F (%)": pct_f,
+        "Utilidad Total ($/MR)": margin_sys,
+        "Margen Total (%)": pct_sys
     })
 
 df_sens = pd.DataFrame(data_rows)
 
 # Pestañas
-tab1, tab2 = st.tabs(["📊 Gráfico de Rentabilidad", "📋 Tabla Detallada"])
+tab1, tab2 = st.tabs(["📊 Gráfico de Márgenes", "📋 Tabla Detallada"])
 
 with tab1:
-    fig = px.line(df_sens, x="Prod. MR/hr", y=["Costo Sistema ($/MR)", "Utilidad ($/MR)"],
-                  title="Costo vs Utilidad por Metro Ruma (MR)",
-                  labels={"value": "Pesos ($)", "Prod. MR/hr": "Productividad (MR/Hora)"},
+    fig = px.line(df_sens, x="Prod. MR/hr", y=["Margen H (%)", "Margen F (%)", "Margen Total (%)"],
+                  title="Margen de Ganancia (%) según Productividad",
+                  labels={"value": "Margen (%)", "Prod. MR/hr": "Productividad (MR/Hora)"},
                   markers=True)
-    # Línea de Precio de Venta
-    fig.add_hline(y=sales_price_mr, line_dash="dash", line_color="green", annotation_text="Precio Venta")
+    fig.add_hline(y=0, line_dash="solid", line_color="black") # Línea base 0%
     fig.update_layout(separators=",.", hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
-    # Formato condicional para el margen
     def color_margin(val):
-        color = 'red' if val < 0 else 'green'
-        return f'color: {color}'
+        color = '#d63031' if val < 0 else '#00b894'
+        return f'color: {color}; font-weight: bold;'
 
-    st.dataframe(df_sens.style
+    # Seleccionamos columnas clave para mostrar
+    cols_to_show = ["Prod. MR/hr", "Costo H ($/MR)", "Utilidad H ($/MR)", "Margen H (%)", 
+                    "Costo F ($/MR)", "Utilidad F ($/MR)", "Margen F (%)", "Margen Total (%)"]
+    
+    st.dataframe(df_sens[cols_to_show].style
                  .format({
-                     "Prod. M3/hr": "{:.0f}",
                      "Prod. MR/hr": "{:.1f}",
-                     "Costo Sistema ($/M3)": lambda x: f"${fmt(x)}",
-                     "Costo Sistema ($/MR)": lambda x: f"${fmt(x)}",
-                     "Utilidad ($/MR)": lambda x: f"${fmt(x)}",
-                     "Margen (%)": "{:.1f}%"
+                     "Costo H ($/MR)": lambda x: f"${fmt(x)}",
+                     "Utilidad H ($/MR)": lambda x: f"${fmt(x)}",
+                     "Margen H (%)": "{:.1f}%",
+                     "Costo F ($/MR)": lambda x: f"${fmt(x)}",
+                     "Utilidad F ($/MR)": lambda x: f"${fmt(x)}",
+                     "Margen F (%)": "{:.1f}%",
+                     "Margen Total (%)": "{:.1f}%"
                  })
-                 .applymap(color_margin, subset=["Margen (%)", "Utilidad ($/MR)"]), 
+                 .applymap(color_margin, subset=["Utilidad H ($/MR)", "Margen H (%)", "Utilidad F ($/MR)", "Margen F (%)", "Margen Total (%)"]), 
                  use_container_width=True)
 
 # Descarga
 csv = df_sens.to_csv(index=False).encode('utf-8')
-st.download_button("💾 Descargar Tabla (Excel/CSV)", data=csv, file_name='rentabilidad_forestal.csv', mime='text/csv')
+st.download_button("💾 Descargar Reporte (CSV)", data=csv, file_name='margenes_maquinaria.csv', mime='text/csv')
