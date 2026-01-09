@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
-# Set page configuration
+# Configuración de la página
 st.set_page_config(page_title="Calculadora de Costos Forestales", layout="wide")
 
 st.title("🌲 Calculadora de Costos Harvester y Forwarder")
@@ -12,28 +12,31 @@ Esta aplicación permite estimar los costos horarios y unitarios ($/m^3$) para o
 Modifique los parámetros en el panel lateral y vea los resultados actualizados en tiempo real.
 """)
 
-# --- SIDEBAR: Configuration Parameters ---
+# --- BARRA LATERAL: Parámetros ---
 st.sidebar.header("1. Parámetros Económicos")
 uf_value = st.sidebar.number_input("Valor UF ($)", value=39704.93, step=100.0)
 fuel_price = st.sidebar.number_input("Precio Petróleo ($/L)", value=774, step=10)
 
 st.sidebar.header("2. Configuración de Jornada")
-days_per_month = st.sidebar.number_input("Días por Mes", value=30, step=1)
-# Harvester Shift
-st.sidebar.subheader("Harvester")
-harvester_daily_hours = st.sidebar.number_input("Horas/Día (Harvester)", value=10.0, step=0.5)
-harvester_monthly_hours = days_per_month * harvester_daily_hours
-st.sidebar.write(f"⏱ Horas Mensuales: **{harvester_monthly_hours}**")
 
-# Forwarder Shift
-st.sidebar.subheader("Forwarder")
-forwarder_daily_hours = st.sidebar.number_input("Horas/Día (Forwarder)", value=9.0, step=0.5)
-forwarder_monthly_hours = days_per_month * forwarder_daily_hours
-st.sidebar.write(f"⏱ Horas Mensuales: **{forwarder_monthly_hours}**")
+# --- SECCIÓN HARVESTER ---
+st.sidebar.subheader("🚜 Harvester")
+h_days_month = st.sidebar.number_input("Días/Mes (Harvester)", value=28, step=1, help="Días trabajados al mes por el Harvester")
+h_hours_day = st.sidebar.number_input("Horas/Día (Harvester)", value=10.0, step=0.5)
+h_monthly_hours = h_days_month * h_hours_day
+st.sidebar.caption(f"⏱ Horas Mensuales Harvester: **{h_monthly_hours}**")
 
-# --- DATA INPUTS ---
+# --- SECCIÓN FORWARDER ---
+st.sidebar.subheader("🚜 Forwarder")
+f_days_month = st.sidebar.number_input("Días/Mes (Forwarder)", value=25, step=1, help="Días trabajados al mes por el Forwarder")
+f_hours_day = st.sidebar.number_input("Horas/Día (Forwarder)", value=9.0, step=0.5)
+f_monthly_hours = f_days_month * f_hours_day
+st.sidebar.caption(f"⏱ Horas Mensuales Forwarder: **{f_monthly_hours}**")
+
+# --- ENTRADA DE DATOS DE COSTOS ---
 
 def get_machine_inputs(prefix, hours_month):
+    """Genera los inputs para una máquina específica"""
     with st.expander(f"⚙️ Costos Operacionales: {prefix}", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
@@ -41,7 +44,7 @@ def get_machine_inputs(prefix, hours_month):
             salary = st.number_input(f"Sueldo Operadores (Total Mes) {prefix} ($)", value=3847442 if prefix=="Harvester" else 1923721, step=50000, help="Suma de todos los operadores del equipo")
         with col2:
             fuel_consump = st.number_input(f"Consumo Petróleo (L/hr) {prefix}", value=20.0 if prefix=="Harvester" else 15.0, step=1.0)
-            maint_hourly = st.number_input(f"Costo Mantención Promedio ($/hr) {prefix}", value=5500 if prefix=="Harvester" else 3500, step=100, help="Promedio ponderado de mantenciones 600h, 1200h, reparaciones, etc.")
+            maint_hourly = st.number_input(f"Costo Mantención Promedio ($/hr) {prefix}", value=5500 if prefix=="Harvester" else 3500, step=100, help="Incluye mantenciones programadas, correctivas y repuestos.")
         
         consumables = st.number_input(f"Consumibles Mensuales (Cadenas, Espadas, Aceite) {prefix} ($)", value=410000 if prefix=="Harvester" else 200000, step=10000)
         
@@ -54,10 +57,10 @@ def get_machine_inputs(prefix, hours_month):
             "hours_month": hours_month
         }
 
-# Shared Costs
+# Costos Compartidos (Faena)
 def get_shared_inputs(h_hours, f_hours):
     with st.expander("🏢 Costos Fijos Compartidos (Faena)", expanded=False):
-        st.info("Estos costos se distribuyen entre las máquinas.")
+        st.info("Estos costos se pagan mensualmente por la faena completa y se distribuyen entre las máquinas.")
         col1, col2 = st.columns(2)
         with col1:
             pickup_rent = st.number_input("Arriendo Camionetas (Total Mes) ($)", value=1504816, step=10000)
@@ -70,36 +73,49 @@ def get_shared_inputs(h_hours, f_hours):
         
         total_shared = pickup_rent + pickup_fuel + support_staff + facilities + pension + others
         
-        # Allocation Logic
-        alloc_method = st.radio("Método de Asignación", ["Porcentaje Fijo", "Proporcional a Horas"], horizontal=True)
-        if alloc_method == "Porcentaje Fijo":
-            h_share_pct = st.slider("% Asignado a Harvester", 0, 100, 66) / 100.0
+        st.write(f"**Total Costos Fijos Faena:** ${total_shared:,.0f}")
+
+        # Lógica de Asignación
+        st.markdown("---")
+        st.write(" **Distribución de Costos Fijos:**")
+        alloc_method = st.radio("Método de Asignación", ["Porcentaje Manual", "Proporcional a Horas Trabajadas"], horizontal=True)
+        
+        if alloc_method == "Porcentaje Manual":
+            h_share_pct = st.slider("% Asignado a Harvester", 0, 100, 60) / 100.0
             f_share_pct = 1.0 - h_share_pct
         else:
             total_h = h_hours + f_hours
-            h_share_pct = h_hours / total_h
-            f_share_pct = f_hours / total_h
+            if total_h > 0:
+                h_share_pct = h_hours / total_h
+                f_share_pct = f_hours / total_h
+            else:
+                h_share_pct = 0.5
+                f_share_pct = 0.5
+            st.info(f"Asignación automática: Harvester {h_share_pct*100:.1f}% | Forwarder {f_share_pct*100:.1f}%")
             
         return total_shared, h_share_pct, f_share_pct
 
-# Get Inputs
-harvester_data = get_machine_inputs("Harvester", harvester_monthly_hours)
-forwarder_data = get_machine_inputs("Forwarder", forwarder_monthly_hours)
-shared_total, h_share, f_share = get_shared_inputs(harvester_monthly_hours, forwarder_monthly_hours)
+# Obtener Inputs
+harvester_data = get_machine_inputs("Harvester", h_monthly_hours)
+forwarder_data = get_machine_inputs("Forwarder", f_monthly_hours)
+shared_total, h_share, f_share = get_shared_inputs(h_monthly_hours, f_monthly_hours)
 
-# --- CALCULATIONS ---
+# --- CÁLCULOS ---
 
 def calculate_hourly_rate(data, fuel_price, shared_cost_allocation):
-    # Fixed Costs per Hour
+    if data['hours_month'] == 0:
+        return {k:0 for k in ["Arriendo", "Operadores", "Combustible", "Mantención", "Consumibles", "Costos Fijos Asig.", "Total Hora"]}
+
+    # Costos Fijos llevados a Hora
     rent_hr = data['rent'] / data['hours_month']
     salary_hr = data['salary'] / data['hours_month']
     consumables_hr = data['consumables_month'] / data['hours_month']
     
-    # Variable Costs per Hour
+    # Costos Variables directos
     fuel_hr = data['fuel_l_hr'] * fuel_price
     maint_hr = data['maintenance_hr']
     
-    # Shared Overhead per Hour
+    # Costo Fijo Faena asignado por hora
     shared_hr = shared_cost_allocation / data['hours_month']
     
     total_hr = rent_hr + salary_hr + consumables_hr + fuel_hr + maint_hr + shared_hr
@@ -117,28 +133,32 @@ def calculate_hourly_rate(data, fuel_price, shared_cost_allocation):
 h_costs = calculate_hourly_rate(harvester_data, fuel_price, shared_total * h_share)
 f_costs = calculate_hourly_rate(forwarder_data, fuel_price, shared_total * f_share)
 
-# --- DISPLAY RESULTS ---
+# --- VISUALIZACIÓN DE RESULTADOS ---
 
 st.divider()
 
-# 1. Summary Metrics
-col1, col2, col3 = st.columns(3)
+# 1. Métricas Resumen
+col1, col2, col3, col4 = st.columns(4)
 col1.metric("Costo Hora Harvester", f"${h_costs['Total Hora']:,.0f}")
 col2.metric("Costo Hora Forwarder", f"${f_costs['Total Hora']:,.0f}")
-col3.metric("Costo Fijo Mensual Faena", f"${shared_total:,.0f}")
+col3.metric("Costo Sistema (H+F)", f"${h_costs['Total Hora'] + f_costs['Total Hora']:,.0f}", help="Suma del costo horario de ambas máquinas")
+col4.metric("Costo Fijo Mensual Faena", f"${shared_total:,.0f}")
 
-# 2. Detailed Breakdown Table
+# 2. Tabla Detallada
 st.subheader("📊 Desglose de Costos Horarios")
 breakdown_df = pd.DataFrame([h_costs, f_costs], index=["Harvester", "Forwarder"]).T
-breakdown_df = breakdown_df.style.format("${:,.0f}")
-st.dataframe(breakdown_df, use_container_width=True)
+breakdown_df["TOTAL SISTEMA"] = breakdown_df["Harvester"] + breakdown_df["Forwarder"]
+# Formato bonito
+st.dataframe(breakdown_df.style.format("${:,.0f}"), use_container_width=True)
 
-# 3. Sensitivity Analysis (Cost per m3)
+# 3. Análisis de Sensibilidad
 st.subheader("📈 Análisis de Sensibilidad (Costo Unitario vs Productividad)")
+st.caption("Este gráfico muestra cómo varía el costo por metro cúbico ($/m3) a medida que cambia la productividad de la faena.")
 
-prod_range = np.arange(10, 45, 1) # Productivity from 10 to 44 m3/hr
+prod_range = np.arange(10, 51, 1) # Productividad de 10 a 50 m3/hr
 
 def generate_sensitivity(hourly_cost, prod_range):
+    if hourly_cost == 0: return [0]*len(prod_range)
     costs = [hourly_cost / p for p in prod_range]
     return costs
 
@@ -152,23 +172,26 @@ sens_df = pd.DataFrame({
     "Costo Sistema ($/m3)": [h+f for h,f in zip(h_sens, f_sens)]
 })
 
-# Display Charts
+# Pestañas para Gráfico y Datos
 tab1, tab2 = st.tabs(["Gráfico de Costos", "Tabla de Datos"])
 
 with tab1:
+    # Usar plotly para gráfico interactivo
     fig = px.line(sens_df, x="Productividad (m3/hr)", y=["Costo Harvester ($/m3)", "Costo Forwarder ($/m3)", "Costo Sistema ($/m3)"],
-                  title="Costo Unitario ($/m3) según Productividad",
-                  labels={"value": "Costo ($/m3)", "variable": "Máquina"})
+                  title="Curva de Costo Unitario ($/m3)",
+                  labels={"value": "Costo ($/m3)", "variable": "Ítem"},
+                  markers=True)
+    fig.update_layout(hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
     st.dataframe(sens_df.style.format("{:.1f}"), use_container_width=True)
 
-# Download Button
+# Botón de Descarga
 csv = sens_df.to_csv(index=False).encode('utf-8')
 st.download_button(
-    label="💾 Descargar Tabla de Costos (CSV)",
+    label="💾 Descargar Tabla de Sensibilidad (CSV)",
     data=csv,
-    file_name='costos_forestales_faena.csv',
+    file_name='costos_forestales_sensibilidad.csv',
     mime='text/csv',
 )
