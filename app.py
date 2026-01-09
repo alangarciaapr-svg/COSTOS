@@ -37,20 +37,38 @@ st.sidebar.caption(f"⏱ Horas Mensuales Forwarder: **{f_monthly_hours}**")
 
 def get_machine_inputs(prefix, hours_month):
     """Genera los inputs para una máquina específica"""
-    with st.expander(f"⚙️ Costos Operacionales: {prefix}", expanded=False):
+    with st.expander(f"⚙️ Costos Operacionales: {prefix}", expanded=True):
+        
+        # 1. ARRIENDO Y COMBUSTIBLE
         col1, col2 = st.columns(2)
         with col1:
             rent = st.number_input(f"Arriendo Mensual {prefix} ($)", value=10900000 if prefix=="Harvester" else 8000000, step=100000)
-            salary = st.number_input(f"Sueldo Operadores (Total Mes) {prefix} ($)", value=3847442 if prefix=="Harvester" else 1923721, step=50000, help="Suma de todos los operadores del equipo")
         with col2:
             fuel_consump = st.number_input(f"Consumo Petróleo (L/hr) {prefix}", value=20.0 if prefix=="Harvester" else 15.0, step=1.0)
+            
+        # 2. OPERADORES (NUEVO: Cantidad y Sueldo Unitario)
+        st.markdown("##### 👷‍♂️ Operadores")
+        col_op1, col_op2, col_op3 = st.columns([1, 1, 1])
+        with col_op1:
+            # Por defecto Harvester tiene 2 turnos (2 op), Forwarder 1 turno (1 op)
+            num_operators = st.number_input(f"N° Operadores {prefix}", value=2 if prefix=="Harvester" else 1, step=1, min_value=0)
+        with col_op2:
+            salary_per_op = st.number_input(f"Sueldo por Operador ($)", value=1923721, step=50000)
+        with col_op3:
+            total_salary = num_operators * salary_per_op
+            st.metric(label="Costo Total Operadores", value=f"${total_salary:,.0f}")
+
+        # 3. MANTENCIÓN Y CONSUMIBLES
+        st.markdown("##### 🔧 Mantención y Otros")
+        col3, col4 = st.columns(2)
+        with col3:
             maint_hourly = st.number_input(f"Costo Mantención Promedio ($/hr) {prefix}", value=5500 if prefix=="Harvester" else 3500, step=100, help="Incluye mantenciones programadas, correctivas y repuestos.")
-        
-        consumables = st.number_input(f"Consumibles Mensuales (Cadenas, Espadas, Aceite) {prefix} ($)", value=410000 if prefix=="Harvester" else 200000, step=10000)
+        with col4:
+            consumables = st.number_input(f"Consumibles Mensuales (Cadenas, Espadas, Aceite) {prefix} ($)", value=410000 if prefix=="Harvester" else 200000, step=10000)
         
         return {
             "rent": rent,
-            "salary": salary,
+            "salary": total_salary, # Usamos el total calculado
             "fuel_l_hr": fuel_consump,
             "maintenance_hr": maint_hourly,
             "consumables_month": consumables,
