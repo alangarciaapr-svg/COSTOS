@@ -61,9 +61,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_master_v8_range.json'
+CONFIG_FILE = 'forest_config_master_v9_stable.json'
 
-# --- 2. FUNCIONES BACKEND ---
+# --- 2. FUNCIONES BACKEND (GLOBALES) ---
 
 @st.cache_data(ttl=3600) 
 def get_uf_api():
@@ -107,6 +107,12 @@ def save_config():
 
 def fmt_money(x): 
     return f"$ {x:,.0f}".replace(",", ".")
+
+# --- AQUÍ ESTÁ LA CORRECCIÓN: FUNCIÓN GLOBAL ---
+def calc_price(cost, margin_pct):
+    """Calcula el precio de venta necesario para obtener un margen % sobre la venta"""
+    factor = 1 - (margin_pct / 100.0)
+    return cost / factor if factor > 0 else 0
 
 # --- 3. INICIALIZACIÓN ---
 saved = load_config()
@@ -339,11 +345,6 @@ with tab_sim:
     st.divider()
     st.subheader("📊 Análisis de Rango Objetivo (30% - 35%)")
     st.markdown("Precios sugeridos por máquina para lograr los márgenes objetivo.")
-
-    # Función helper para calcular precio dado un margen
-    def calc_price(cost, margin_pct):
-        factor = 1 - (margin_pct / 100.0)
-        return cost / factor if factor > 0 else 0
 
     # Escenario 30%
     p_h_30 = calc_price(costo_unit_h, 30)
