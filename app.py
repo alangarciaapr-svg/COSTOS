@@ -46,9 +46,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_totals_v15.json'
+CONFIG_FILE = 'forest_config_v16_final.json'
 
-# --- 2. GESTIÓN DE PERSISTENCIA (ROBUSTA) ---
+# --- 2. GESTIÓN DE PERSISTENCIA ---
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
@@ -83,7 +83,7 @@ EXPECTED_KEYS = [
     "use_auto_uf", "uf_manual", "fuel_price", 
     "conversion_factor", "sales_price_mr", "h_rev_pct",
     "h_days_month", "h_hours_day", "f_days_month", "f_hours_day",
-    "df_harvester_totals", "df_forwarder_totals", "df_indirect_totals",
+    "df_harvester_v16", "df_forwarder_v16", "df_indirect_v16",
     "sim_m3_h", "sim_m3_f", "alloc_method", "h_share_pct_manual"
 ]
 
@@ -92,7 +92,7 @@ if 'config_loaded' not in st.session_state:
     for key in EXPECTED_KEYS:
         if key in saved_config:
             val = saved_config[key]
-            if key in ["df_harvester_totals", "df_forwarder_totals", "df_indirect_totals"]:
+            if key in ["df_harvester_v16", "df_forwarder_v16", "df_indirect_v16"]:
                 st.session_state[key] = pd.DataFrame(val)
             else:
                 st.session_state[key] = val
@@ -134,7 +134,7 @@ with st.sidebar:
     use_auto_uf = st.checkbox("UF Automática", value=True, key="use_auto_uf", on_change=save_config)
     if use_auto_uf and uf_api:
         current_uf = uf_api
-        st.success(f"UF: ${fmt(current_uf)}")
+        st.success(f"UF Hoy: ${fmt(current_uf)}")
     else:
         current_uf = st.number_input("Valor UF", value=39704.93, step=100.0, key="uf_manual", on_change=save_config)
 
@@ -155,63 +155,59 @@ with st.sidebar:
 
 # --- 5. LOGICA PRINCIPAL ---
 
-st.title("🌲 Planilla de Costos (Totales Mensuales)")
+st.title("🌲 Planilla de Costos (Inputs Totales)")
 
 # --- A. JORNADA ---
-with st.expander("📅 Configuración de Jornada (Define el divisor de horas)", expanded=True):
+with st.expander("📅 Configuración de Jornada (Variables Clave)", expanded=True):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Harvester**")
         h_days = st.number_input("Días/Mes (H)", value=28, step=1, key="h_days_month", on_change=save_config)
         h_hours_day = st.number_input("Hrs/Día (H)", value=10.0, step=0.5, key="h_hours_day", on_change=save_config)
         h_total_hours = h_days * h_hours_day
-        st.caption(f"Divisor: {fmt(h_total_hours)} Horas al Mes")
+        st.caption(f"Total: {fmt(h_total_hours)} Hrs Mes")
     with c2:
         st.markdown("**Forwarder**")
         f_days = st.number_input("Días/Mes (F)", value=25, step=1, key="f_days_month", on_change=save_config)
         f_hours_day = st.number_input("Hrs/Día (F)", value=9.0, step=0.5, key="f_hours_day", on_change=save_config)
         f_total_hours = f_days * f_hours_day
-        st.caption(f"Divisor: {fmt(f_total_hours)} Horas al Mes")
+        st.caption(f"Total: {fmt(f_total_hours)} Hrs Mes")
 
 st.divider()
 
-# --- B. TABLAS DE COSTOS (EDITABLES - TOTALES) ---
+# --- B. TABLAS DE COSTOS (LÓGICA MEJORADA) ---
 
 col_tab1, col_tab2 = st.columns(2)
 
-def create_machine_table(prefix, col_obj, total_hours, fuel_p):
+def create_machine_table(prefix, col_obj, machine_days, machine_hours_total, fuel_p):
     with col_obj:
         st.subheader(f"🚜 {prefix}")
         
-        # Datos Iniciales (Solo Totales Mensuales)
-        # Convertimos los valores base que teníamos (L/h) a Totales aproximados para iniciar
-        hrs_base = 300 if prefix=="Harvester" else 250
-        l_hr_base = 20.0 if prefix=="Harvester" else 15.0
-        fuel_m_base = l_hr_base * hrs_base * fuel_p
-        
+        # Estructura Inicial (Si no existe)
         initial_data = [
-            {"Categoría": "Fijos", "Ítem": "Arriendo Maquinaria", "Total Mensual ($)": 10900000 if prefix=="Harvester" else 8000000},
-            {"Categoría": "Fijos", "Ítem": "Sueldos Operadores", "Total Mensual ($)": 3800000 if prefix=="Harvester" else 1900000},
-            {"Categoría": "Fijos", "Ítem": "Seguros / Otros", "Total Mensual ($)": 750000},
+            {"Categoría": "Fijos", "Ítem": "Arriendo Maquinaria", "Valor Input": 10900000 if prefix=="Harvester" else 8000000, "Unidad": "$/Mes"},
+            {"Categoría": "Fijos", "Ítem": "Sueldos Operadores", "Valor Input": 3800000 if prefix=="Harvester" else 1900000, "Unidad": "$/Mes"},
+            {"Categoría": "Fijos", "Ítem": "Seguros / Otros", "Valor Input": 750000, "Unidad": "$/Mes"},
             
-            {"Categoría": "Variable", "Ítem": "Gasto Petróleo Total", "Total Mensual ($)": int(fuel_m_base)},
+            # FILA CLAVE: PETROLEO EN LITROS DIARIOS
+            {"Categoría": "Variable", "Ítem": "Consumo Petróleo", "Valor Input": 200.0 if prefix=="Harvester" else 135.0, "Unidad": "Litros/Día"},
             
-            {"Categoría": "Mantención", "Ítem": "Mant. Preventiva", "Total Mensual ($)": 800000 if prefix=="Harvester" else 500000},
-            {"Categoría": "Mantención", "Ítem": "Mant. Correctiva", "Total Mensual ($)": 500000 if prefix=="Harvester" else 300000},
-            {"Categoría": "Mantención", "Ítem": "Neumáticos/Rodado", "Total Mensual ($)": 280000},
+            {"Categoría": "Mantención", "Ítem": "Mant. Preventiva", "Valor Input": 800000 if prefix=="Harvester" else 500000, "Unidad": "$/Mes"},
+            {"Categoría": "Mantención", "Ítem": "Mant. Correctiva", "Valor Input": 500000 if prefix=="Harvester" else 300000, "Unidad": "$/Mes"},
+            {"Categoría": "Mantención", "Ítem": "Neumáticos/Rodado", "Valor Input": 280000, "Unidad": "$/Mes"},
             
-            {"Categoría": "Consumibles", "Ítem": "Elementos Corte", "Total Mensual ($)": 200000},
-            {"Categoría": "Consumibles", "Ítem": "Aceite Hidráulico", "Total Mensual ($)": 160000},
-            {"Categoría": "Consumibles", "Ítem": "Lubricantes/Filtros", "Total Mensual ($)": 60000},
+            {"Categoría": "Consumibles", "Ítem": "Elementos Corte", "Valor Input": 200000, "Unidad": "$/Mes"},
+            {"Categoría": "Consumibles", "Ítem": "Aceite Hidráulico", "Valor Input": 160000, "Unidad": "$/Mes"},
+            {"Categoría": "Consumibles", "Ítem": "Lubricantes/Filtros", "Valor Input": 60000, "Unidad": "$/Mes"},
             
-            {"Categoría": "Otros", "Ítem": "Reservas/Varios", "Total Mensual ($)": 0},
+            {"Categoría": "Otros", "Ítem": "Reservas/Varios", "Valor Input": 0, "Unidad": "$/Mes"},
         ]
         
-        key_df = f"df_{prefix.lower()}_totals"
+        key_df = f"df_{prefix.lower()}_v16"
         if key_df not in st.session_state:
             st.session_state[key_df] = pd.DataFrame(initial_data)
             
-        st.info("Ingresa el **Gasto Total del Mes** en cada fila. El sistema dividirá por las horas.")
+        st.info("Edita 'Valor Input'. Si la unidad es **Litros/Día**, se multiplicará por Días y Petróleo.")
         
         # EDITOR
         edited_df = st.data_editor(
@@ -220,42 +216,63 @@ def create_machine_table(prefix, col_obj, total_hours, fuel_p):
             column_config={
                 "Categoría": st.column_config.TextColumn(disabled=True),
                 "Ítem": st.column_config.TextColumn(disabled=True),
-                "Total Mensual ($)": st.column_config.NumberColumn("Total Mensual ($)", format="$%d", required=True),
+                "Unidad": st.column_config.TextColumn(disabled=True),
+                "Valor Input": st.column_config.NumberColumn("Valor Input", format="%d", required=True),
             },
             hide_index=True,
             use_container_width=True,
             height=450
         )
+        # Guardar inmediatamente en state
         st.session_state[key_df] = edited_df
         save_config()
         
-        # CÁLCULOS
-        total_month_sum = edited_df["Total Mensual ($)"].sum()
-        total_hr = total_month_sum / total_hours if total_hours else 0
+        # --- CÁLCULOS ROBUSTOS ---
+        total_month_sum = 0
+        fuel_daily_liters = 0
+        fuel_monthly_cost = 0
         
-        # Cálculo inverso de litros (Solo informativo)
-        fuel_row = edited_df[edited_df["Ítem"] == "Gasto Petróleo Total"]
-        fuel_spending = fuel_row.iloc[0]["Total Mensual ($)"] if not fuel_row.empty else 0
-        implied_liters_month = fuel_spending / fuel_p if fuel_p else 0
-        implied_l_hr = implied_liters_month / total_hours if total_hours else 0
+        for index, row in edited_df.iterrows():
+            val = row["Valor Input"]
+            unit = row["Unidad"]
+            
+            row_cost = 0
+            
+            if unit == "Litros/Día":
+                # Lógica Específica: LitrosDia * DiasMes * Precio
+                fuel_daily_liters = val
+                fuel_monthly_cost = val * machine_days * fuel_p
+                row_cost = fuel_monthly_cost
+            else:
+                # Asumimos $/Mes
+                row_cost = val
+            
+            total_month_sum += row_cost
+            
+        total_hr = total_month_sum / machine_hours_total if machine_hours_total else 0
         
-        # Resumen
+        # Tarjeta Resumen
         st.success(f"**Costo Hora: ${fmt(total_hr)}**")
-        with st.expander(f"📊 Detalles {prefix}"):
-            st.write(f"Gasto Total Mes: **${fmt(total_month_sum)}**")
-            st.write(f"Consumo Implícito: **{implied_l_hr:.1f} L/hora**")
-            st.caption(f"(Basado en gasto combustible ${fmt(fuel_spending)} y precio ${fuel_p})")
+        with st.expander(f"📊 Detalles Cálculo {prefix}"):
+            st.write(f"Total Mensual: **${fmt(total_month_sum)}**")
+            st.write(f"Días Trabajados: **{machine_days}**")
+            if fuel_daily_liters > 0:
+                st.write(f"---")
+                st.write(f"⛽ Petróleo: **{fuel_daily_liters} L/día**")
+                st.write(f"= {fuel_daily_liters} x {machine_days} días x ${fuel_p}")
+                st.write(f"= **${fmt(fuel_monthly_cost)}** (Mes)")
             
         return total_month_sum, total_hr
 
-h_total_m, h_total_hr = create_machine_table("Harvester", col_tab1, h_total_hours, fuel_price)
-f_total_m, f_total_hr = create_machine_table("Forwarder", col_tab2, f_total_hours, fuel_price)
+# Llamada a funciones pasando los días específicos
+h_total_m, h_total_hr = create_machine_table("Harvester", col_tab1, h_days, h_total_hours, fuel_price)
+f_total_m, f_total_hr = create_machine_table("Forwarder", col_tab2, f_days, f_total_hours, fuel_price)
 
 # --- C. INDIRECTOS Y FAENA ---
 st.markdown("---")
 st.subheader("🏢 Costos Indirectos (Faena)")
 
-key_ind = "df_indirect_totals"
+key_ind = "df_indirect_v16"
 if key_ind not in st.session_state:
     st.session_state[key_ind] = pd.DataFrame([
         {"Ítem": "Arriendo Camionetas", "Detalle": "Total Mes (UF)", "Valor": 38.0},
@@ -280,11 +297,11 @@ with st.expander("📝 Editar Totales Indirectos", expanded=True):
             hide_index=True,
             use_container_width=True
         )
+        st.session_state[key_ind] = edited_ind
+        save_config()
+        
     with col_i2:
-        st.info("Nota: Para Camionetas, ingrese UF en la fila 'Arriendo' y Pesos ($) en 'Combustible'.")
-    
-    st.session_state[key_ind] = edited_ind
-    save_config()
+        st.info("Camionetas: Ingrese UF en 'Arriendo' y $ en 'Combustible' (Total Mes).")
 
 # Procesar Indirectos
 def get_ind(name):
@@ -292,10 +309,8 @@ def get_ind(name):
     return float(r.iloc[0]["Valor"]) if not r.empty else 0
 
 total_shared = 0
-# Arriendo UF -> CLP
 uf_val = get_ind("Arriendo Camionetas")
 total_shared += uf_val * current_uf
-# Resto Suma Directa
 total_shared += get_ind("Combustible Camionetas")
 total_shared += get_ind("Personal Apoyo")
 total_shared += get_ind("Instalaciones")
@@ -337,7 +352,7 @@ st.markdown("### 🧮 Simulador de Rentabilidad")
 col_sim_in, col_sim_out = st.columns([1, 2])
 
 with col_sim_in:
-    st.markdown("**Producción Estimada ($m^3$/hr)**")
+    st.markdown("**Producción ($m^3$/hr)**")
     m3_h = st.number_input("Harvester", value=25.0, step=0.5, key="sim_m3_h", on_change=save_config)
     m3_f = st.number_input("Forwarder", value=28.0, step=0.5, key="sim_m3_f", on_change=save_config)
     
@@ -346,7 +361,6 @@ with col_sim_in:
     mr_sys = min(mr_h, mr_f)
 
 with col_sim_out:
-    # Lógica
     cost_sys_unit = sys_hr / mr_sys if mr_sys else 0
     util_unit = sales_price_mr - cost_sys_unit
     margen_pct = (util_unit / sales_price_mr * 100) if sales_price_mr else 0
@@ -362,7 +376,6 @@ with col_sim_out:
     </div>
     """, unsafe_allow_html=True)
 
-# Tabla detalle por máquina
 res_data = pd.DataFrame([
     {"Máquina": "Harvester", "Prod (MR/h)": mr_h, "Ingreso": h_income, "Costo": (final_h_hr/mr_h) if mr_h else 0},
     {"Máquina": "Forwarder", "Prod (MR/h)": mr_f, "Ingreso": f_income, "Costo": (final_f_hr/mr_f) if mr_f else 0},
