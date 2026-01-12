@@ -55,7 +55,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v26_final.json'
+CONFIG_FILE = 'forest_config_v27_fixed.json'
 
 # --- 2. GESTIÓN DE GUARDADO (PERSISTENCIA) ---
 class NumpyEncoder(json.JSONEncoder):
@@ -186,8 +186,8 @@ st.divider()
 # ==========================================
 # B. TABLAS DE COSTOS (HARVESTER Y FORWARDER)
 # ==========================================
-# Función para renderizar tabla idéntica
-def render_machine_section(prefix, col_obj, machine_days, machine_hours_total, fuel_p, uf_val):
+# Función CORREGIDA para renderizar tabla idéntica
+def render_machine_table(prefix, col_obj, machine_days, machine_hours_total, fuel_p, uf_val):
     with col_obj:
         st.subheader(f"🚜 {prefix}")
         key_df = f"df_{prefix.lower()}_v25"
