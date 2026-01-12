@@ -44,7 +44,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v17_fwd.json'
+CONFIG_FILE = 'forest_config_v18_final.json'
 
 # --- 2. PERSISTENCIA ---
 class NumpyEncoder(json.JSONEncoder):
@@ -82,7 +82,8 @@ EXPECTED_KEYS = [
     "conversion_factor", "sales_price_mr", "h_rev_pct",
     "h_days_month", "h_hours_day", "f_days_month", "f_hours_day",
     "df_harvester_v17", "df_forwarder_v17", "df_indirect_v17",
-    "alloc_method", "h_share_pct_manual"
+    "alloc_method", "h_share_pct_manual", 
+    "sim_m3_h_val", "sim_m3_f_val"
 ]
 
 if 'config_loaded' not in st.session_state:
@@ -327,4 +328,54 @@ idx = alloc_opts.index(st.session_state.get("alloc_method", "Manual")) if st.ses
 alloc = st.radio("Distribución Indirectos", alloc_opts, index=idx, horizontal=True, on_change=save_config, key="alloc_method")
 
 if alloc == "Manual":
-    h_pct = st.slider("% Harvester
+    # --- AQUÍ ESTABA EL ERROR ANTES, AHORA CORREGIDO ---
+    h_pct = st.slider("% Harvester", 0, 100, 60, key="h_share_pct_manual", on_change=save_config) / 100.0
+else:
+    tt = h_total_hours + f_total_hours
+    h_pct = h_total_hours / tt if tt > 0 else 0.5
+
+shared_h = total_shared * h_pct
+shared_f = total_shared * (1 - h_pct)
+
+# --- E. RESULTADOS FINALES ---
+st.divider()
+st.subheader("📊 Resultados Consolidados")
+
+final_h_hr = (h_total_m + shared_h) / h_total_hours if h_total_hours else 0
+final_f_hr = (f_total_m + shared_f) / f_total_hours if f_total_hours else 0
+sys_hr = final_h_hr + final_f_hr
+
+c1, c2, c3 = st.columns(3)
+with c1: card("Costo Harvester", f"${fmt(final_h_hr)}/hr", "Inc. Indirectos")
+with c2: card("Costo Forwarder", f"${fmt(final_f_hr)}/hr", "Inc. Indirectos")
+with c3: card("Costo Sistema", f"${fmt(sys_hr)}/hr", "Total Operacional")
+
+# Simulador
+st.markdown("### 🧮 Simulador de Rentabilidad")
+col_sim_in, col_sim_out = st.columns([1, 2])
+
+with col_sim_in:
+    st.markdown("**Producción Estimada ($m^3$/hr)**")
+    # Usamos keys distintas para el simulador
+    m3_h = st.number_input("Harvester", value=25.0, step=0.5, key="sim_m3_h_val")
+    m3_f = st.number_input("Forwarder", value=28.0, step=0.5, key="sim_m3_f_val")
+    
+    mr_h = m3_h / conversion_factor if conversion_factor else 0
+    mr_f = m3_f / conversion_factor if conversion_factor else 0
+    mr_sys = min(mr_h, mr_f)
+
+with col_sim_out:
+    cost_sys_unit = sys_hr / mr_sys if mr_sys else 0
+    util_unit = sales_price_mr - cost_sys_unit
+    margen_pct = (util_unit / sales_price_mr * 100) if sales_price_mr else 0
+    
+    color_m = "green" if util_unit > 0 else "red"
+    st.markdown(f"""
+    <div style="background-color:#f8f9fa; border:1px solid #ddd; border-radius:10px; padding:20px; text-align:center;">
+        <h3 style="margin:0; color:#333;">Margen del Sistema Real</h3>
+        <div style="font-size:36px; font-weight:bold; color:{color_m};">{margen_pct:.1f}%</div>
+        <div style="color:#555;">Utilidad: <b>${fmt(util_unit)}</b> / MR</div>
+        <hr>
+        <div style="font-size:13px;">Prod. Real (Limitada): <b>{mr_sys:.1f} MR/hr</b></div>
+    </div>
+    """, unsafe_allow_html=True)
