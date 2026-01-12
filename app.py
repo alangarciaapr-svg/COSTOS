@@ -16,7 +16,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos CSS para apariencia profesional (KPIs, Tablas, Headers)
 st.markdown("""
 <style>
     .main {background-color: #f4f6f9;}
@@ -28,19 +27,15 @@ st.markdown("""
         padding: 15px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
-    .stDataFrame { border-radius: 8px; overflow: hidden; }
     div[data-testid="stExpander"] {
         background-color: white;
         border-radius: 8px;
         border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
-    .metric-label {font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;}
-    .metric-value {font-size: 1.8rem; color: #0f172a; font-weight: 700;}
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_master_v1.json'
+CONFIG_FILE = 'forest_config_master_v2.json'
 
 # --- 2. FUNCIONES BACKEND ---
 
@@ -90,66 +85,70 @@ def safe_float(val, default_val):
 def fmt_money(x): 
     return f"$ {x:,.0f}".replace(",", ".")
 
-# --- 3. INICIALIZACIÓN DE DATOS (BASADO EN TU EXCEL) ---
-if 'init' not in st.session_state:
-    saved = load_config()
-    
-    # Parámetros Globales (Excel: 39755 UF, 774 Petróleo)
-    st.session_state['uf_manual'] = safe_float(saved.get('uf_manual'), 39755.0)
-    st.session_state['fuel_price'] = safe_float(saved.get('fuel_price'), 774.0)
-    st.session_state['sales_price'] = safe_float(saved.get('sales_price'), 11500.0) # Valor ref
-    st.session_state['alloc_pct'] = safe_float(saved.get('alloc_pct'), 0.5) # 50% por defecto
-    st.session_state['target_margin'] = safe_float(saved.get('target_margin'), 15.0)
+# --- 3. INICIALIZACIÓN ROBUSTA (FIX PARA KEYERROR) ---
+# Cargamos configuración guardada o diccionarios vacíos
+saved = load_config()
 
-    # 1. HARVESTER (Detalle Excel)
-    if 'df_harvester' in saved: st.session_state['df_harvester'] = pd.DataFrame(saved['df_harvester'])
-    else:
-        st.session_state['df_harvester'] = pd.DataFrame([
-            {"Cat": "Fijos", "Ítem": "Arriendo Base", "Tipo": "$/Mes", "Frec": 1, "Valor": 10900000},
-            {"Cat": "Fijos", "Ítem": "Operador T1", "Tipo": "$/Mes", "Frec": 1, "Valor": 1923721},
-            {"Cat": "Fijos", "Ítem": "Operador T2", "Tipo": "$/Mes", "Frec": 1, "Valor": 1923721},
-            {"Cat": "Variable", "Ítem": "Petróleo T1", "Tipo": "Litros/Día", "Frec": 1, "Valor": 200.0}, # Excel dice 200/turno approx? Ajustable
-            {"Cat": "Variable", "Ítem": "Petróleo T2", "Tipo": "Litros/Día", "Frec": 1, "Valor": 200.0},
-            {"Cat": "Insumos", "Ítem": "Cadenas/Espadas", "Tipo": "$/Mes", "Frec": 1, "Valor": 450000},
-            {"Cat": "Insumos", "Ítem": "Aceite Hidráulico", "Tipo": "$/Mes", "Frec": 1, "Valor": 180000},
-            {"Cat": "Mantención", "Ítem": "Mant. 600h", "Tipo": "$/Ev", "Frec": 600, "Valor": 350000},
-            {"Cat": "Mayor", "Ítem": "Overhaul (Amort)", "Tipo": "$/Ev", "Frec": 20000, "Valor": 24000000},
-        ])
+# Función para inicializar una key si no existe
+def init_key(key, default_value):
+    if key not in st.session_state:
+        # Intentar cargar del archivo, si no, usar default
+        loaded_val = saved.get(key)
+        if loaded_val is not None:
+            if isinstance(default_value, pd.DataFrame):
+                st.session_state[key] = pd.DataFrame(loaded_val)
+            else:
+                st.session_state[key] = loaded_val
+        else:
+            st.session_state[key] = default_value
 
-    # 2. FORWARDER (Detalle Excel)
-    if 'df_forwarder' in saved: st.session_state['df_forwarder'] = pd.DataFrame(saved['df_forwarder'])
-    else:
-        st.session_state['df_forwarder'] = pd.DataFrame([
-            {"Cat": "Operación", "Ítem": "Arriendo", "Unidad": "$/Mes", "Valor": 8000000},
-            {"Cat": "Operación", "Ítem": "Operador", "Unidad": "$/Mes", "Valor": 1900000},
-            {"Cat": "Variable", "Ítem": "Petróleo", "Unidad": "Litros/Día", "Valor": 135.0},
-            {"Cat": "Mantención", "Ítem": "Mantención Gral", "Unidad": "$/Mes", "Valor": 1500000},
-            {"Cat": "Variable", "Ítem": "Neumáticos", "Unidad": "$/Mes", "Valor": 400000},
-        ])
+# Inicializamos una por una para evitar errores
+init_key('uf_manual', 39755.0)
+init_key('fuel_price', 774.0)
+init_key('sales_price', 11500.0)
+init_key('alloc_pct', 0.5)
+init_key('target_margin', 15.0)
+init_key('h_days', 28)
+init_key('h_hours', 10.0)
+init_key('f_days', 28)
+init_key('f_hours', 10.0)
 
-    # 3. RRHH INDIRECTO (Nuevo: Basado en Excel "Tabla cálculo")
-    if 'df_rrhh' in saved: st.session_state['df_rrhh'] = pd.DataFrame(saved['df_rrhh'])
-    else:
-        st.session_state['df_rrhh'] = pd.DataFrame([
-            {"Cargo": "Jefe de Faena", "Sueldo Líquido": 1800000, "Costo Empresa": 2300000},
-            {"Cargo": "Mecánico", "Sueldo Líquido": 1200000, "Costo Empresa": 1600000},
-            {"Cargo": "Prevencionista", "Sueldo Líquido": 900000, "Costo Empresa": 1200000},
-            {"Cargo": "Estrobero/Cancha", "Sueldo Líquido": 600000, "Costo Empresa": 850000},
-            {"Cargo": "Bodeguero", "Sueldo Líquido": 0, "Costo Empresa": 0},
-        ])
+# DataFrames (Aquí fallaba antes, ahora está protegido)
+init_key('df_harvester', pd.DataFrame([
+    {"Cat": "Fijos", "Ítem": "Arriendo Base", "Tipo": "$/Mes", "Frec": 1, "Valor": 10900000},
+    {"Cat": "Fijos", "Ítem": "Operador T1", "Tipo": "$/Mes", "Frec": 1, "Valor": 1923721},
+    {"Cat": "Fijos", "Ítem": "Operador T2", "Tipo": "$/Mes", "Frec": 1, "Valor": 1923721},
+    {"Cat": "Variable", "Ítem": "Petróleo T1", "Tipo": "Litros/Día", "Frec": 1, "Valor": 200.0},
+    {"Cat": "Variable", "Ítem": "Petróleo T2", "Tipo": "Litros/Día", "Frec": 1, "Valor": 200.0},
+    {"Cat": "Insumos", "Ítem": "Cadenas/Espadas", "Tipo": "$/Mes", "Frec": 1, "Valor": 450000},
+    {"Cat": "Insumos", "Ítem": "Aceite Hidráulico", "Tipo": "$/Mes", "Frec": 1, "Valor": 180000},
+    {"Cat": "Mantención", "Ítem": "Mant. 600h", "Tipo": "$/Ev", "Frec": 600, "Valor": 350000},
+    {"Cat": "Mayor", "Ítem": "Overhaul (Amort)", "Tipo": "$/Ev", "Frec": 20000, "Valor": 24000000},
+]))
 
-    # 4. FLOTA Y VARIOS (Nuevo: Basado en Excel)
-    if 'df_flota' in saved: st.session_state['df_flota'] = pd.DataFrame(saved['df_flota'])
-    else:
-        st.session_state['df_flota'] = pd.DataFrame([
-            {"Ítem": "Camioneta 1 (Arriendo)", "Monto": 800000},
-            {"Ítem": "Camioneta 2 (Arriendo)", "Monto": 800000},
-            {"Ítem": "Combustible Camionetas", "Monto": 600000},
-            {"Ítem": "Pensión/Alojamiento", "Monto": 1500000},
-            {"Ítem": "Gastos Adm. Central", "Monto": 500000},
-        ])
-    
-    st.session_state['init'] = True
+init_key('df_forwarder', pd.DataFrame([
+    {"Cat": "Operación", "Ítem": "Arriendo", "Unidad": "$/Mes", "Valor": 8000000},
+    {"Cat": "Operación", "Ítem": "Operador", "Unidad": "$/Mes", "Valor": 1900000},
+    {"Cat": "Variable", "Ítem": "Petróleo", "Unidad": "Litros/Día", "Valor": 135.0},
+    {"Cat": "Mantención", "Ítem": "Mantención Gral", "Unidad": "$/Mes", "Valor": 1500000},
+    {"Cat": "Variable", "Ítem": "Neumáticos", "Unidad": "$/Mes", "Valor": 400000},
+]))
+
+# Tablas Nuevas (RRHH y Flota) - Protegidas
+init_key('df_rrhh', pd.DataFrame([
+    {"Cargo": "Jefe de Faena", "Sueldo Líquido": 1800000, "Costo Empresa": 2300000},
+    {"Cargo": "Mecánico", "Sueldo Líquido": 1200000, "Costo Empresa": 1600000},
+    {"Cargo": "Prevencionista", "Sueldo Líquido": 900000, "Costo Empresa": 1200000},
+    {"Cargo": "Estrobero/Cancha", "Sueldo Líquido": 600000, "Costo Empresa": 850000},
+]))
+
+init_key('df_flota', pd.DataFrame([
+    {"Ítem": "Camioneta 1 (Arriendo)", "Monto": 800000},
+    {"Ítem": "Camioneta 2 (Arriendo)", "Monto": 800000},
+    {"Ítem": "Combustible Camionetas", "Monto": 600000},
+    {"Ítem": "Pensión/Alojamiento", "Monto": 1500000},
+    {"Ítem": "Gastos Adm. Central", "Monto": 500000},
+]))
 
 # --- 4. CÁLCULOS CENTRALIZADOS ---
 def calculate_system_costs(h_df, f_df, rrhh_df, flota_df, days_h, hrs_h, days_f, hrs_f, uf, diesel):
