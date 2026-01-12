@@ -38,13 +38,22 @@ st.markdown("""
         text-align: center;
         margin-bottom: 10px;
     }
-    .success-box { background-color: #dcfce7; border: 1px solid #86efac; color: #166534; }
-    .warning-box { background-color: #fef9c3; border: 1px solid #fde047; color: #854d0e; }
-    .danger-box { background-color: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+    .highlight-box {
+        background-color: #dcfce7;
+        padding: 20px;
+        border-radius: 10px;
+        border: 1px solid #86efac;
+        text-align: center;
+    }
+    .big-number {
+        font-size: 2em;
+        font-weight: bold;
+        color: #166534;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_master_v4_dash.json'
+CONFIG_FILE = 'forest_config_master_v5_m3.json'
 
 # --- 2. FUNCIONES BACKEND ---
 
@@ -75,7 +84,8 @@ def load_config():
 
 def save_config():
     keys = ["uf_manual", "fuel_price", "h_days", "h_hours", "f_days", "f_hours", 
-            "df_harvester", "df_forwarder", "df_rrhh", "df_flota", "alloc_pct", "sales_price", "target_margin"]
+            "df_harvester", "df_forwarder", "df_rrhh", "df_flota", 
+            "alloc_pct", "sales_price", "target_margin", "conv_factor"]
     
     state_to_save = {}
     for k in keys:
@@ -110,6 +120,7 @@ init_key('fuel_price', 774.0)
 init_key('sales_price', 11500.0)
 init_key('alloc_pct', 0.5)
 init_key('target_margin', 35.0)
+init_key('conv_factor', 2.44) # Factor m3/MR por defecto
 init_key('h_days', 28)
 init_key('h_hours', 10.0)
 init_key('f_days', 28)
@@ -206,7 +217,15 @@ with st.sidebar:
         curr_fuel = st.number_input("Diesel ($/Lt)", value=float(st.session_state['fuel_price']), on_change=save_config, key="fuel_price")
         curr_sales = st.number_input("Tarifa Venta ($/MR)", value=float(st.session_state['sales_price']), on_change=save_config, key="sales_price")
 
-    with st.expander("⚙️ Distribución Costos Indirectos"):
+    # NUEVO: Factor de Conversión
+    with st.expander("📏 Conversión Volumen", expanded=True):
+        st.info("Factor para convertir m³ Sólidos a Metro Ruma (MR).")
+        curr_factor = st.number_input("Factor (m³/MR)", value=float(st.session_state.get('conv_factor', 2.44)), step=0.01, format="%.2f", key="conv_factor_input")
+        if curr_factor != st.session_state['conv_factor']:
+            st.session_state['conv_factor'] = curr_factor
+            save_config()
+
+    with st.expander("⚙️ Distribución Costos"):
         alloc = st.slider("% Asignado a Harvester", 0, 100, int(st.session_state['alloc_pct']*100)) / 100.0
         if alloc != st.session_state['alloc_pct']:
             st.session_state['alloc_pct'] = alloc
@@ -218,9 +237,9 @@ with st.sidebar:
         st.toast("Configuración guardada")
 
 # --- 6. INTERFAZ: CUERPO ---
-st.title("🌲 Sistema de Costos Forestales Profesional")
+st.title("🌲 Sistema de Costos Forestales")
 
-# Calculamos costos base antes de mostrar nada
+# Calculamos costos base
 tot_h_dir, tot_f_dir, tot_ind, hrs_h, hrs_f = calculate_system_costs(
     st.session_state['df_harvester'], st.session_state['df_forwarder'], 
     st.session_state['df_rrhh'], st.session_state['df_flota'],
@@ -232,92 +251,100 @@ ind_h = tot_ind * st.session_state['alloc_pct']
 ind_f = tot_ind * (1 - st.session_state['alloc_pct'])
 final_h_mes = tot_h_dir + ind_h
 final_f_mes = tot_f_dir + ind_f
-cost_hr_sys = (final_h_mes / hrs_h) + (final_f_mes / hrs_f) if hrs_h > 0 else 0
+cost_mensual_sistema = final_h_mes + final_f_mes
+
+cost_hr_h = final_h_mes / hrs_h if hrs_h > 0 else 0
+cost_hr_f = final_f_mes / hrs_f if hrs_f > 0 else 0
+cost_hr_sys = cost_hr_h + cost_hr_f
 
 tab_dash, tab_h, tab_f, tab_ind, tab_sim = st.tabs([
-    "📊 Dashboard Gerencial", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos", "📈 Matriz Sensibilidad"
+    "📊 Cierre Mensual & Margen", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos", "📈 Matriz Sensibilidad"
 ])
 
-# --- DASHBOARD GERENCIAL DINÁMICO ---
+# --- DASHBOARD GERENCIAL (PRODUCCIÓN m3) ---
 with tab_dash:
-    st.markdown("### 🎯 Simulador de Resultados Mensuales")
+    st.header("📊 Simulador de Cierre Mensual")
+    st.markdown("Ingresa los **m³ producidos** por máquina para ver tu conversión a MR y el Margen Final.")
+
+    # 1. INPUTS DE PRODUCCIÓN REAL (m3)
+    c_in1, c_in2, c_in3 = st.columns(3)
     
-    # 1. CONTROL DINÁMICO
-    col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1, 2])
-    with col_kpi1:
-        st.markdown("**1. Variable Crítica**")
-        sim_prod_dash = st.number_input("Productividad Real (MR/Hr)", value=22.0, step=0.5, key="dash_prod")
+    with c_in1:
+        st.markdown("#### 🚜 Harvester")
+        prod_h_m3 = st.number_input("Producción H (m³)", value=5000.0, step=100.0, key="prod_h_m3")
+        # Conversión
+        prod_h_mr = prod_h_m3 / st.session_state['conv_factor']
+        st.metric("Equivalente MR", f"{prod_h_mr:,.1f} MR")
         
-    with col_kpi2:
-        st.markdown("**2. Tarifa Actual**")
-        st.metric("Precio Venta", fmt_money(st.session_state['sales_price']), "por Metro Ruma")
+    with c_in2:
+        st.markdown("#### 🚜 Forwarder")
+        prod_f_m3 = st.number_input("Producción F (m³)", value=5000.0, step=100.0, key="prod_f_m3")
+        # Conversión
+        prod_f_mr = prod_f_m3 / st.session_state['conv_factor']
+        st.metric("Equivalente MR", f"{prod_f_mr:,.1f} MR")
 
-    # Cálculos Dinámicos
-    ingreso_mensual_proy = sim_prod_dash * st.session_state['sales_price'] * hrs_h # Asumiendo hrs harvester mandan
-    costo_mensual_total = final_h_mes + final_f_mes
-    utilidad_mensual = ingreso_mensual_proy - costo_mensual_total
-    margen_real = (utilidad_mensual / ingreso_mensual_proy * 100) if ingreso_mensual_proy > 0 else 0
-    target = st.session_state['target_margin']
-    
-    with col_kpi3:
-        st.markdown("**3. Resultado Proyectado**")
-        delta_color = "normal" if margen_real >= target else "inverse"
-        st.metric("Utilidad Mensual Estimada", fmt_money(utilidad_mensual), f"{margen_real:.1f}% Margen Real", delta_color=delta_color)
-
+    with c_in3:
+        st.markdown("#### 💰 Facturación")
+        st.info(f"Factor Conversión: **{st.session_state['conv_factor']} m³/MR**")
+        st.caption("Se asume que la venta se basa en la producción del Forwarder (Cancha).")
+        
     st.divider()
 
-    # 2. GRÁFICOS GERENCIALES
-    c_left, c_right = st.columns([1, 2])
+    # 2. CÁLCULO DE MARGEN
+    # Ingreso basado en Forwarder (Lo que llega a cancha)
+    ingresos_reales = prod_f_mr * st.session_state['sales_price']
+    utilidad = ingresos_reales - cost_mensual_sistema
+    margen_pct = (utilidad / ingresos_reales * 100) if ingresos_reales > 0 else 0
+    target = st.session_state.get('target_margin', 35.0)
+
+    col_res1, col_res2, col_res3 = st.columns(3)
     
-    with c_left:
-        st.subheader("Cumplimiento de Meta")
-        # Gráfico de Velocímetro (Gauge)
+    with col_res1:
+        st.metric("Facturación Estimada", fmt_money(ingresos_reales), f"{prod_f_mr:,.0f} MR Totales")
+    with col_res2:
+        st.metric("Costo Total Mes", fmt_money(cost_mensual_sistema), "Operativo + Fijo")
+    with col_res3:
+        delta_color = "normal" if margen_pct >= target else "inverse"
+        st.metric("Utilidad Neta", fmt_money(utilidad), f"{margen_pct:.1f}% Margen", delta_color=delta_color)
+
+    # 3. GRÁFICOS
+    c_graph_left, c_graph_right = st.columns([1, 2])
+    
+    with c_graph_left:
+        # Velocímetro
         fig_gauge = go.Figure(go.Indicator(
             mode = "gauge+number+delta",
-            value = margen_real,
-            domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': "Margen Operacional (%)"},
-            delta = {'reference': target, 'increasing': {'color': "green"}},
+            value = margen_pct,
+            title = {'text': "Margen Real %"},
+            delta = {'reference': target},
             gauge = {
-                'axis': {'range': [None, 60], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                'axis': {'range': [None, 60]},
                 'bar': {'color': "#1e3a8a"},
-                'bgcolor': "white",
-                'borderwidth': 2,
-                'bordercolor': "gray",
                 'steps': [
                     {'range': [0, 10], 'color': '#fee2e2'},
                     {'range': [10, target], 'color': '#fef9c3'},
                     {'range': [target, 60], 'color': '#dcfce7'}],
-                'threshold': {
-                    'line': {'color': "red", 'width': 4},
-                    'thickness': 0.75,
-                    'value': target}}))
-        fig_gauge.update_layout(height=300, margin=dict(l=20,r=20,t=50,b=20))
+                'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': target}
+            }
+        ))
+        fig_gauge.update_layout(height=300, margin=dict(l=20,r=20,t=30,b=20))
         st.plotly_chart(fig_gauge, use_container_width=True)
-        
-        if margen_real < 0:
-            st.error(f"⚠️ ¡Atención! Estás perdiendo dinero con {sim_prod_dash} MR/hr.")
-        elif margen_real < target:
-            st.warning(f"⚠️ Margen positivo pero bajo la meta del {target}%.")
-        else:
-            st.success("✅ Operación saludable.")
 
-    with c_right:
-        st.subheader("Cascada de Rentabilidad (Waterfall)")
-        # Gráfico Waterfall
+    with c_graph_right:
+        # Cascada
         fig_water = go.Figure(go.Waterfall(
             name = "20", orientation = "v",
             measure = ["relative", "relative", "relative", "relative", "total"],
-            x = ["Ingresos Venta", "Costo Harvester", "Costo Forwarder", "Costo Indirecto", "UTILIDAD NETA"],
+            x = ["Ventas (MR)", "Costos H", "Costos F", "Indirectos", "UTILIDAD"],
             textposition = "outside",
-            text = [fmt_money(ingreso_mensual_proy), fmt_money(-tot_h_dir), fmt_money(-tot_f_dir), fmt_money(-tot_ind), fmt_money(utilidad_mensual)],
-            y = [ingreso_mensual_proy, -tot_h_dir, -tot_f_dir, -tot_ind, utilidad_mensual],
+            text = [fmt_money(ingresos_reales), fmt_money(-final_h_mes), fmt_money(-final_f_mes), fmt_money(-tot_ind), fmt_money(utilidad)],
+            y = [ingresos_reales, -tot_h_dir, -tot_f_dir, -tot_ind, utilidad],
             connector = {"line":{"color":"rgb(63, 63, 63)"}},
         ))
-        fig_water.update_layout(title = "Estructura de Pérdidas y Ganancias del Mes", showlegend = False, height=400)
+        fig_water.update_layout(title = "Estructura Financiera del Mes", height=400)
         st.plotly_chart(fig_water, use_container_width=True)
 
-# --- OTRAS TABS (MANTENIENDO LO QUE YA FUNCIONABA) ---
+# --- OTRAS TABS ---
 with tab_h:
     c1, c2 = st.columns([1, 3])
     with c1:
@@ -353,57 +380,38 @@ with tab_ind:
     save_config()
 
 with tab_sim:
-    st.header("🎯 Calculadora de Tarifas Objetivo")
-    st.markdown("Define cuánto quieres ganar y el sistema te dirá cuánto cobrar por Metro Ruma (MR).")
-
+    st.header("🎯 Calculadora de Tarifas (Base MR)")
+    
     col_input1, col_input2 = st.columns(2)
     with col_input1:
         target_margin_slide = st.slider("Margen Deseado (%)", 0, 60, int(st.session_state.get('target_margin', 35)), 1)
         st.session_state['target_margin'] = target_margin_slide
         save_config()
     with col_input2:
-        prod_estimada = st.number_input("Productividad Estimada para Cálculo (MR/Hr)", value=22.0, step=0.5)
+        prod_estimada_mr = st.number_input("Productividad Estimada (MR/Hr)", value=22.0, step=0.5)
 
-    # Cálculo Tarifas
-    cost_hr_h_total = (tot_h_dir + ind_h) / hrs_h if hrs_h > 0 else 0
-    cost_hr_f_total = (tot_f_dir + ind_f) / hrs_f if hrs_f > 0 else 0
-    cost_hr_sys_total = cost_hr_h_total + cost_hr_f_total
-
-    costo_unit_h = cost_hr_h_total / prod_estimada if prod_estimada > 0 else 0
-    costo_unit_f = cost_hr_f_total / prod_estimada if prod_estimada > 0 else 0
-    costo_unit_sys = cost_hr_sys_total / prod_estimada if prod_estimada > 0 else 0
-
+    # Costo Unitario
+    costo_unit_sys = cost_hr_sys / prod_estimada_mr if prod_estimada_mr > 0 else 0
     margin_factor = 1 - (target_margin_slide / 100.0)
     if margin_factor <= 0: margin_factor = 0.01
-
-    precio_req_h = costo_unit_h / margin_factor
-    precio_req_f = costo_unit_f / margin_factor
     precio_req_sys = costo_unit_sys / margin_factor
 
-    st.divider()
+    st.subheader(f"Tarifa Sugerida para ganar {target_margin_slide}%")
+    st.markdown(f'<div class="highlight-box">SISTEMA TOTAL<br><span class="big-number">{fmt_money(precio_req_sys)}</span><br>per MR</div>', unsafe_allow_html=True)
     
-    col_res1, col_res2, col_res3 = st.columns(3)
-    with col_res1:
-        st.markdown('<div class="highlight-box">Harvester<br><span class="big-number">{}</span><br>per MR</div>'.format(fmt_money(precio_req_h)), unsafe_allow_html=True)
-    with col_res2:
-        st.markdown('<div class="highlight-box">Forwarder<br><span class="big-number">{}</span><br>per MR</div>'.format(fmt_money(precio_req_f)), unsafe_allow_html=True)
-    with col_res3:
-        st.markdown('<div class="highlight-box" style="background-color:#dbeafe; border-color:#93c5fd;">SISTEMA TOTAL<br><span class="big-number" style="color:#1e40af;">{}</span><br>per MR</div>'.format(fmt_money(precio_req_sys)), unsafe_allow_html=True)
-
     st.divider()
+    st.subheader("📉 Sensibilidad: Margen vs Productividad")
     
-    # Heatmap
-    st.subheader("📉 Matriz de Sensibilidad")
     base_price = st.session_state['sales_price']
     rango_precios = np.linspace(base_price * 0.8, base_price * 1.2, 10)
-    rango_prod = np.linspace(10, 40, 10)
+    rango_prod = np.linspace(10, 40, 10) # MR/Hr
     
     z_data = []
     for p_prod in rango_prod:
         row = []
         for p_price in rango_precios:
             ing = p_prod * p_price
-            mgn = ((ing - cost_hr_sys_total) / ing * 100) if ing > 0 else 0
+            mgn = ((ing - cost_hr_sys) / ing * 100) if ing > 0 else 0
             row.append(mgn)
         z_data.append(row)
         
@@ -411,5 +419,5 @@ with tab_sim:
         z=z_data, x=[f"${p:,.0f}" for p in rango_precios], y=[f"{pr:.1f}" for pr in rango_prod],
         colorscale='RdYlGn', zmin=0, zmax=50, texttemplate="%{z:.0f}%"
     ))
-    fig_heat.update_layout(title="Margen (%) según Precio y Productividad", xaxis_title="Precio ($/MR)", yaxis_title="Prod (MR/Hr)", height=500)
+    fig_heat.update_layout(xaxis_title="Precio ($/MR)", yaxis_title="Prod (MR/Hr)", height=500)
     st.plotly_chart(fig_heat, use_container_width=True)
