@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ESTILOS CSS (Toque Profesional)
+# Estilos
 st.markdown("""
 <style>
     .metric-card {
@@ -39,7 +39,6 @@ st.markdown("""
         font-weight: 600;
         letter-spacing: 0.5px;
     }
-    /* Estilo para las tablas editables */
     .stDataEditor {
         border: 1px solid #e5e7eb;
         border-radius: 8px;
@@ -47,9 +46,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_excel_tables_v13.json'
+CONFIG_FILE = 'forest_config_v14_fixed.json'
 
-# --- 2. GESTIÓN DE PERSISTENCIA (CORREGIDA PARA TABLAS) ---
+# --- 2. GESTIÓN DE PERSISTENCIA ROBUSTA ---
+
+# Clase para manejar números que JSON no entiende por defecto (NumPy)
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8,
+                            np.int16, np.int32, np.int64, np.uint8,
+                            np.uint16, np.uint32, np.uint64)):
+            return int(obj)
+        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, (np.ndarray,)):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -60,35 +73,33 @@ def load_config():
     return {}
 
 def save_config():
-    # Convertimos DataFrames a diccionarios (JSON compatible)
+    # Convertimos DataFrames a diccionarios
     config_data = {}
     for k, v in st.session_state.items():
         if k in EXPECTED_KEYS:
             if isinstance(v, pd.DataFrame):
-                config_data[k] = v.to_dict('records') # Serializar
+                config_data[k] = v.to_dict('records') 
             elif isinstance(v, (int, float, str, bool, list, dict)):
                 config_data[k] = v
                 
+    # Usamos cls=NumpyEncoder para evitar el error de guardado
     with open(CONFIG_FILE, 'w') as f:
-        json.dump(config_data, f)
+        json.dump(config_data, f, cls=NumpyEncoder)
 
 EXPECTED_KEYS = [
     "use_auto_uf", "uf_manual", "fuel_price", 
     "conversion_factor", "sales_price_mr", "h_rev_pct",
     "h_days_month", "h_hours_day", "f_days_month", "f_hours_day",
-    # Tablas de Datos
     "df_harvester_data", "df_forwarder_data", "df_indirect_data",
-    # Simulador
     "sim_m3_h", "sim_m3_f", "alloc_method", "h_share_pct_manual"
 ]
 
-# Inicialización Segura
+# Inicialización
 if 'config_loaded' not in st.session_state:
     saved_config = load_config()
     for key in EXPECTED_KEYS:
         if key in saved_config:
             val = saved_config[key]
-            # Si es una de las tablas, reconstruir DataFrame
             if key in ["df_harvester_data", "df_forwarder_data", "df_indirect_data"]:
                 st.session_state[key] = pd.DataFrame(val)
             else:
@@ -159,14 +170,15 @@ with st.expander("📅 Configuración de Jornada", expanded=True):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Harvester**")
-        h_days = st.number_input("Días/Mes (H)", 28, key="h_days_month", on_change=save_config)
-        h_hours_day = st.number_input("Hrs/Día (H)", 10.0, step=0.5, key="h_hours_day", on_change=save_config)
+        h_days = st.number_input("Días/Mes (H)", value=28, step=1, key="h_days_month", on_change=save_config)
+        h_hours_day = st.number_input("Hrs/Día (H)", value=10.0, step=0.5, key="h_hours_day", on_change=save_config)
         h_total_hours = h_days * h_hours_day
         st.caption(f"Total: {fmt(h_total_hours)} Hrs")
     with c2:
         st.markdown("**Forwarder**")
-        f_days = st.number_input("Días/Mes (F)", 25, key="f_days_month", on_change=save_config)
-        f_hours_day = st.number_input("Hrs/Día (F)", 9.0, step=0.5, key="f_hours_day", on_change=save_config)
+        # Aquí estaba el problema potencial, nos aseguramos que el step sea int para días
+        f_days = st.number_input("Días/Mes (F)", value=25, step=1, key="f_days_month", on_change=save_config)
+        f_hours_day = st.number_input("Hrs/Día (F)", value=9.0, step=0.5, key="f_hours_day", on_change=save_config)
         f_total_hours = f_days * f_hours_day
         st.caption(f"Total: {fmt(f_total_hours)} Hrs")
 
@@ -180,7 +192,7 @@ def create_machine_table(prefix, col_obj, total_hours, fuel_p):
     with col_obj:
         st.subheader(f"🚜 {prefix}")
         
-        # Estructura inicial basada en CSVs
+        # Estructura inicial
         initial_data = [
             {"Categoría": "Fijos", "Ítem": "Arriendo Mensual", "Valor Input": 10900000 if prefix=="Harvester" else 8000000, "Unidad": "$/Mes"},
             {"Categoría": "Fijos", "Ítem": "Operador Turno 1", "Valor Input": 1923721, "Unidad": "$/Mes"},
@@ -202,7 +214,6 @@ def create_machine_table(prefix, col_obj, total_hours, fuel_p):
             {"Categoría": "Otros", "Ítem": "Reservas/Overhaul", "Valor Input": 330000, "Unidad": "$/Mes"},
         ]
         
-        # Recuperar o crear DataFrame
         key_df = f"df_{prefix.lower()}_data"
         if key_df not in st.session_state:
             st.session_state[key_df] = pd.DataFrame(initial_data)
@@ -224,14 +235,13 @@ def create_machine_table(prefix, col_obj, total_hours, fuel_p):
             height=450
         )
         
-        # Persistencia manual del DataFrame editado
+        # Guardar en session state para persistencia
         st.session_state[key_df] = edited_df
-        save_config() # Guardamos en JSON
+        save_config() 
         
         # --- CÁLCULOS INTERNOS ---
         total_month_sum = 0
         
-        # Recorremos el DF editado para sumar
         for index, row in edited_df.iterrows():
             val = row["Valor Input"]
             unit = row["Unidad"]
@@ -246,7 +256,6 @@ def create_machine_table(prefix, col_obj, total_hours, fuel_p):
             
         total_hr = total_month_sum / total_hours if total_hours else 0
         
-        # Resumen Tarjeta
         st.info(f"**Total {prefix}:** ${fmt(total_hr)} /hr  (Mensual: ${fmt(total_month_sum)})")
         
         return total_month_sum, total_hr
