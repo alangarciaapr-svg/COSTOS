@@ -45,19 +45,23 @@ st.markdown("""
         font-weight: 800;
         color: #166534;
     }
-    .profit-text {
-        color: #15803d;
-        font-weight: bold;
-        font-size: 1.1em;
+    .range-card {
+        background-color: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 8px;
+        padding: 15px;
+        text-align: center;
+        margin-bottom: 10px;
     }
-    .cost-text {
-        color: #64748b;
-        font-size: 0.9em;
+    .range-title {
+        font-weight: bold;
+        color: #15803d;
+        margin-bottom: 5px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_master_v7_profit.json'
+CONFIG_FILE = 'forest_config_master_v8_range.json'
 
 # --- 2. FUNCIONES BACKEND ---
 
@@ -307,109 +311,104 @@ with tab_ind:
     with c2: st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], use_container_width=True, num_rows="dynamic", column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
     save_config()
 
-# --- TAB SIMULACIÓN: UTILIDAD POR MÁQUINA ---
+# --- TAB SIMULACIÓN: ANÁLISIS DE RANGO ---
 with tab_sim:
-    st.header("🎯 Análisis de Utilidad y Tarifas por Máquina")
+    st.header("🎯 Análisis de Tarifas y Márgenes")
+    st.info("Utilice los deslizadores para simular un margen personalizado, o vea el análisis automático de 30-35% abajo.")
     
     # 1. Inputs
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        margin_h = st.slider("Margen Objetivo Harvester (%)", 0, 60, int(st.session_state.get('target_margin_h', 35)))
+    col_input1, col_input2, col_input3 = st.columns(3)
+    with col_input1:
+        margin_h = st.slider("Margen Harvester (%)", 0, 60, int(st.session_state.get('target_margin_h', 35)))
         st.session_state['target_margin_h'] = margin_h
-    with c2:
-        margin_f = st.slider("Margen Objetivo Forwarder (%)", 0, 60, int(st.session_state.get('target_margin_f', 35)))
+    with col_input2:
+        margin_f = st.slider("Margen Forwarder (%)", 0, 60, int(st.session_state.get('target_margin_f', 35)))
         st.session_state['target_margin_f'] = margin_f
-    with c3:
+    with col_input3:
         prod_sim = st.number_input("Prod. Estimada (MR/Hr)", value=22.0, step=0.5)
 
-    # 2. Cálculos Unitarios
-    # Costo por Hora
+    # 2. Cálculos Base Unitarios
     cost_h_hr = (tot_h_dir + ind_h) / hrs_h if hrs_h > 0 else 0
     cost_f_hr = (tot_f_dir + ind_f) / hrs_f if hrs_f > 0 else 0
     
-    # Costo por MR
     cost_unit_h = cost_h_hr / prod_sim if prod_sim > 0 else 0
     cost_unit_f = cost_f_hr / prod_sim if prod_sim > 0 else 0
-    
-    # Precio Sugerido
-    price_h = cost_unit_h / (1 - margin_h/100) if margin_h < 100 else 0
-    price_f = cost_unit_f / (1 - margin_f/100) if margin_f < 100 else 0
-    
-    # Utilidad por MR
-    profit_h = price_h - cost_unit_h
-    profit_f = price_f - cost_unit_f
-    
-    # Totales Sistema
-    price_sys = price_h + price_f
     cost_unit_sys = cost_unit_h + cost_unit_f
-    profit_sys = profit_h + profit_f
-    margin_sys_pct = (profit_sys / price_sys * 100) if price_sys > 0 else 0
 
+    # --- ANÁLISIS DE RANGO (30% vs 35%) ---
     st.divider()
-    
-    # 3. Visualización Cards
-    col_h, col_f, col_s = st.columns(3)
-    
-    with col_h:
-        st.markdown(f"""
-        <div class="highlight-box">
-            <h3>🚜 Harvester</h3>
-            <div class="big-number">{fmt_money(profit_h)}</div>
-            <div class="profit-text">Utilidad por MR</div>
-            <hr>
-            <div class="cost-text">Tarifa Sugerida: <b>{fmt_money(price_h)}</b></div>
-            <div class="cost-text">Costo Unitario: {fmt_money(cost_unit_h)}</div>
-            <div class="cost-text">Margen: {margin_h}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+    st.subheader("📊 Análisis de Rango Objetivo (30% - 35%)")
+    st.markdown("Precios sugeridos por máquina para lograr los márgenes objetivo.")
 
-    with col_f:
-        st.markdown(f"""
-        <div class="highlight-box">
-            <h3>🚜 Forwarder</h3>
-            <div class="big-number">{fmt_money(profit_f)}</div>
-            <div class="profit-text">Utilidad por MR</div>
-            <hr>
-            <div class="cost-text">Tarifa Sugerida: <b>{fmt_money(price_f)}</b></div>
-            <div class="cost-text">Costo Unitario: {fmt_money(cost_unit_f)}</div>
-            <div class="cost-text">Margen: {margin_f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+    # Función helper para calcular precio dado un margen
+    def calc_price(cost, margin_pct):
+        factor = 1 - (margin_pct / 100.0)
+        return cost / factor if factor > 0 else 0
 
-    with col_s:
-        st.markdown(f"""
-        <div class="highlight-box" style="border-left-color: #1e40af;">
-            <h3 style="color:#1e3a8a">🌲 SISTEMA TOTAL</h3>
-            <div class="big-number" style="color:#1e3a8a">{fmt_money(profit_sys)}</div>
-            <div class="profit-text" style="color:#1d4ed8">Utilidad Total por MR</div>
-            <hr>
-            <div class="cost-text">Tarifa Total: <b>{fmt_money(price_sys)}</b></div>
-            <div class="cost-text">Costo Total: {fmt_money(cost_unit_sys)}</div>
-            <div class="cost-text">Margen Promedio: {margin_sys_pct:.1f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+    # Escenario 30%
+    p_h_30 = calc_price(costo_unit_h, 30)
+    p_f_30 = calc_price(costo_unit_f, 30)
+    p_sys_30 = p_h_30 + p_f_30
 
+    # Escenario 35%
+    p_h_35 = calc_price(costo_unit_h, 35)
+    p_f_35 = calc_price(costo_unit_f, 35)
+    p_sys_35 = p_h_35 + p_f_35
+
+    col_30, col_35 = st.columns(2)
+
+    with col_30:
+        st.markdown("""
+        <div class="range-card" style="border-color: #fcd34d; background-color: #fffbeb;">
+            <div class="range-title" style="color: #b45309;">Escenario Base (30% Margen)</div>
+            <div style="font-size: 1.5em; font-weight: bold; color: #b45309;">{} / MR</div>
+            <hr>
+            <div style="text-align: left; padding-left: 20px;">
+                <b>Harvester:</b> {}<br>
+                <b>Forwarder:</b> {}
+            </div>
+        </div>
+        """.format(fmt_money(p_sys_30), fmt_money(p_h_30), fmt_money(p_f_30)), unsafe_allow_html=True)
+
+    with col_35:
+        st.markdown("""
+        <div class="range-card" style="border-color: #86efac; background-color: #f0fdf4;">
+            <div class="range-title" style="color: #15803d;">Escenario Ideal (35% Margen)</div>
+            <div style="font-size: 1.5em; font-weight: bold; color: #15803d;">{} / MR</div>
+            <hr>
+            <div style="text-align: left; padding-left: 20px;">
+                <b>Harvester:</b> {}<br>
+                <b>Forwarder:</b> {}
+            </div>
+        </div>
+        """.format(fmt_money(p_sys_35), fmt_money(p_h_35), fmt_money(p_f_35)), unsafe_allow_html=True)
+
+    # --- VISUALIZACIÓN PERSONALIZADA (SLIDERS) ---
     st.divider()
-
-    # 4. Tabla Detallada
-    st.subheader("📋 Estado de Resultados Unitario Estimado")
+    st.subheader(f"🎛️ Resultado Simulación Manual ({margin_h}% H / {margin_f}% F)")
+    
+    price_h_sim = calc_price(costo_unit_h, margin_h)
+    price_f_sim = calc_price(costo_unit_f, margin_f)
+    profit_h = price_h_sim - costo_unit_h
+    profit_f = price_f_sim - costo_unit_f
+    
+    # Tabla Detallada
     df_detail = pd.DataFrame({
-        "Concepto": ["Harvester", "Forwarder", "TOTAL SISTEMA"],
-        "Costo Unitario ($/MR)": [fmt_money(cost_unit_h), fmt_money(cost_unit_f), fmt_money(cost_unit_sys)],
-        "Tarifa Sugerida ($/MR)": [fmt_money(price_h), fmt_money(price_f), fmt_money(price_sys)],
-        "Utilidad ($/MR)": [fmt_money(profit_h), fmt_money(profit_f), fmt_money(profit_sys)],
-        "Margen %": [f"{margin_h}%", f"{margin_f}%", f"{margin_sys_pct:.1f}%"]
+        "Máquina": ["Harvester", "Forwarder", "SISTEMA TOTAL"],
+        "Costo Unit. ($/MR)": [fmt_money(costo_unit_h), fmt_money(costo_unit_f), fmt_money(cost_unit_sys)],
+        "Tarifa Sugerida ($/MR)": [fmt_money(price_h_sim), fmt_money(price_f_sim), fmt_money(price_h_sim + price_f_sim)],
+        "Utilidad Neta ($/MR)": [fmt_money(profit_h), fmt_money(profit_f), fmt_money(profit_h + profit_f)],
+        "Margen Aplicado": [f"{margin_h}%", f"{margin_f}%", "-"]
     })
     st.dataframe(df_detail, use_container_width=True, hide_index=True)
 
-    # 5. Gráfico Barras Apiladas
-    st.subheader("📊 Composición de la Tarifa")
+    # Gráfico Barras Apiladas
     df_chart = pd.DataFrame({
         "Máquina": ["Harvester", "Harvester", "Forwarder", "Forwarder"],
         "Tipo": ["Costo", "Utilidad", "Costo", "Utilidad"],
-        "Valor": [cost_unit_h, profit_h, cost_unit_f, profit_f]
+        "Valor": [costo_unit_h, profit_h, costo_unit_f, profit_f]
     })
     
-    fig_bar = px.bar(df_chart, x="Máquina", y="Valor", color="Tipo", title="Estructura de Tarifa por Máquina",
+    fig_bar = px.bar(df_chart, x="Máquina", y="Valor", color="Tipo", title="Composición de Tarifa ($/MR)",
                      color_discrete_map={"Costo": "#94a3b8", "Utilidad": "#22c55e"}, text_auto='.2s')
     st.plotly_chart(fig_bar, use_container_width=True)
