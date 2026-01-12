@@ -16,15 +16,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Ajustado para parecer Excel
+# ESTILOS CSS (Toque Profesional)
 st.markdown("""
 <style>
     .metric-card {
         background-color: #ffffff;
         border-left: 5px solid #2e7d32;
         padding: 15px;
-        border-radius: 5px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 6px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.08);
         margin-bottom: 10px;
     }
     .metric-value {
@@ -37,18 +37,19 @@ st.markdown("""
         color: #6b7280;
         text-transform: uppercase;
         font-weight: 600;
+        letter-spacing: 0.5px;
     }
-    /* Ajustes para la tabla editable */
-    .stDataFrame {
+    /* Estilo para las tablas editables */
+    .stDataEditor {
         border: 1px solid #e5e7eb;
-        border-radius: 5px;
+        border-radius: 8px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_excel_final_v12.json'
+CONFIG_FILE = 'forest_config_excel_tables_v13.json'
 
-# --- 2. GESTIÓN DE PERSISTENCIA (CORREGIDA PARA DATAFRAMES) ---
+# --- 2. GESTIÓN DE PERSISTENCIA (CORREGIDA PARA TABLAS) ---
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -59,12 +60,12 @@ def load_config():
     return {}
 
 def save_config():
-    # Convertimos DataFrames a diccionarios antes de guardar
+    # Convertimos DataFrames a diccionarios (JSON compatible)
     config_data = {}
     for k, v in st.session_state.items():
         if k in EXPECTED_KEYS:
             if isinstance(v, pd.DataFrame):
-                config_data[k] = v.to_dict('records') # Serializar tabla
+                config_data[k] = v.to_dict('records') # Serializar
             elif isinstance(v, (int, float, str, bool, list, dict)):
                 config_data[k] = v
                 
@@ -75,19 +76,19 @@ EXPECTED_KEYS = [
     "use_auto_uf", "uf_manual", "fuel_price", 
     "conversion_factor", "sales_price_mr", "h_rev_pct",
     "h_days_month", "h_hours_day", "f_days_month", "f_hours_day",
-    # Tablas Completas
+    # Tablas de Datos
     "df_harvester_data", "df_forwarder_data", "df_indirect_data",
     # Simulador
     "sim_m3_h", "sim_m3_f", "alloc_method", "h_share_pct_manual"
 ]
 
-# Carga Inicial Segura
+# Inicialización Segura
 if 'config_loaded' not in st.session_state:
     saved_config = load_config()
     for key in EXPECTED_KEYS:
         if key in saved_config:
             val = saved_config[key]
-            # Reconstruir DataFrames
+            # Si es una de las tablas, reconstruir DataFrame
             if key in ["df_harvester_data", "df_forwarder_data", "df_indirect_data"]:
                 st.session_state[key] = pd.DataFrame(val)
             else:
@@ -105,7 +106,7 @@ def card(title, value, sub=""):
     <div class="metric-card">
         <div class="metric-label">{title}</div>
         <div class="metric-value">{value}</div>
-        <div style="font-size:12px; color:#888;">{sub}</div>
+        <div style="font-size:11px; color:#888;">{sub}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -151,7 +152,7 @@ with st.sidebar:
 
 # --- 5. LOGICA PRINCIPAL ---
 
-st.title("🌲 Planilla de Costos Forestales (Detalle Excel)")
+st.title("🌲 Planilla de Costos Forestales (Modo Tabla)")
 
 # --- A. JORNADA ---
 with st.expander("📅 Configuración de Jornada", expanded=True):
@@ -179,34 +180,36 @@ def create_machine_table(prefix, col_obj, total_hours, fuel_p):
     with col_obj:
         st.subheader(f"🚜 {prefix}")
         
-        # Estructura inicial basada en tus CSVs
+        # Estructura inicial basada en CSVs
         initial_data = [
             {"Categoría": "Fijos", "Ítem": "Arriendo Mensual", "Valor Input": 10900000 if prefix=="Harvester" else 8000000, "Unidad": "$/Mes"},
             {"Categoría": "Fijos", "Ítem": "Operador Turno 1", "Valor Input": 1923721, "Unidad": "$/Mes"},
-            {"Categoría": "Fijos", "Ítem": "Operador Turno 2", "Valor Input": 1923721 if prefix=="Harvester" else 0, "Unidad": "$/Mes"}, # Forwarder a veces 1 turno
-            {"Categoría": "Fijos", "Ítem": "Seguro / Otros", "Valor Input": 750000, "Unidad": "$/Mes"},
+            {"Categoría": "Fijos", "Ítem": "Operador Turno 2", "Valor Input": 1923721 if prefix=="Harvester" else 0, "Unidad": "$/Mes"},
+            {"Categoría": "Fijos", "Ítem": "Seguros / Otros", "Valor Input": 750000, "Unidad": "$/Mes"},
             
             {"Categoría": "Variable", "Ítem": "Petróleo (Consumo)", "Valor Input": 20.0 if prefix=="Harvester" else 15.0, "Unidad": "Litros/Hora"},
             
-            {"Categoría": "Mantención", "Ítem": "Mant. Programada (600/1200h)", "Valor Input": 127000, "Unidad": "$/Mes (Prom)"},
-            {"Categoría": "Mantención", "Ítem": "Mant. Correctiva/Repuestos", "Valor Input": 400000, "Unidad": "$/Mes"},
-            {"Categoría": "Mantención", "Ítem": "Hidráulica / Mangueras", "Valor Input": 910000 if prefix=="Harvester" else 500000, "Unidad": "$/Mes"},
-            {"Categoría": "Mantención", "Ítem": "Neumáticos / Rodado", "Valor Input": 280000, "Unidad": "$/Mes"},
+            {"Categoría": "Mantención", "Ítem": "Mant. Programada", "Valor Input": 127000, "Unidad": "$/Mes"},
+            {"Categoría": "Mantención", "Ítem": "Mant. Correctiva", "Valor Input": 400000, "Unidad": "$/Mes"},
+            {"Categoría": "Mantención", "Ítem": "Hidráulica/Mangueras", "Valor Input": 910000 if prefix=="Harvester" else 500000, "Unidad": "$/Mes"},
+            {"Categoría": "Mantención", "Ítem": "Neumáticos/Rodado", "Valor Input": 280000, "Unidad": "$/Mes"},
             {"Categoría": "Mantención", "Ítem": "Grasas y Lubricantes", "Valor Input": 80000, "Unidad": "$/Mes"},
             
-            {"Categoría": "Consumibles", "Ítem": "Cadenas / Elementos Corte", "Valor Input": 30000, "Unidad": "$/Mes"},
-            {"Categoría": "Consumibles", "Ítem": "Espadas / Barras", "Valor Input": 130000, "Unidad": "$/Mes"},
+            {"Categoría": "Consumibles", "Ítem": "Cadenas/Corte", "Valor Input": 30000, "Unidad": "$/Mes"},
+            {"Categoría": "Consumibles", "Ítem": "Espadas/Barras", "Valor Input": 130000, "Unidad": "$/Mes"},
             {"Categoría": "Consumibles", "Ítem": "Aceite Hidráulico", "Valor Input": 160000, "Unidad": "$/Mes"},
             
-            {"Categoría": "Otros", "Ítem": "Reservas / Overhaul", "Valor Input": 330000, "Unidad": "$/Mes"},
+            {"Categoría": "Otros", "Ítem": "Reservas/Overhaul", "Valor Input": 330000, "Unidad": "$/Mes"},
         ]
         
+        # Recuperar o crear DataFrame
         key_df = f"df_{prefix.lower()}_data"
         if key_df not in st.session_state:
             st.session_state[key_df] = pd.DataFrame(initial_data)
             
-        # TABLA EDITABLE
-        st.caption("Modifica la columna 'Valor Input'. Si la unidad es 'Litros/Hora', se multiplicará por el precio del petróleo.")
+        st.caption("Edita la columna 'Valor Input'. Si dice Litros/Hora, se multiplica por el precio del petróleo.")
+        
+        # EDITOR DE TABLA
         edited_df = st.data_editor(
             st.session_state[key_df],
             key=f"editor_{prefix}",
@@ -218,43 +221,33 @@ def create_machine_table(prefix, col_obj, total_hours, fuel_p):
             },
             hide_index=True,
             use_container_width=True,
-            height=400
+            height=450
         )
         
-        # Actualizar Session State
+        # Persistencia manual del DataFrame editado
         st.session_state[key_df] = edited_df
-        save_config() # Guardar cambios al archivo
+        save_config() # Guardamos en JSON
         
         # --- CÁLCULOS INTERNOS ---
         total_month_sum = 0
         
-        # Iteramos para calcular el costo mensual real de cada fila
-        # Si es L/h -> Input * Horas * Precio
-        # Si es $/Mes -> Input
-        calc_rows = []
-        
+        # Recorremos el DF editado para sumar
         for index, row in edited_df.iterrows():
             val = row["Valor Input"]
             unit = row["Unidad"]
             
-            cost_month = 0
+            cost = 0
             if unit == "Litros/Hora":
-                cost_month = val * total_hours * fuel_p
+                cost = val * total_hours * fuel_p
             else:
-                cost_month = val
+                cost = val
             
-            total_month_sum += cost_month
+            total_month_sum += cost
             
         total_hr = total_month_sum / total_hours if total_hours else 0
         
-        # Tarjeta Resumen Máquina
-        st.markdown(f"""
-        <div style="background-color:#e6fffa; padding:10px; border-radius:5px; border:1px solid #b2f5ea; text-align:center;">
-            <div style="font-size:14px; color:#2c7a7b;">Costo Total {prefix}</div>
-            <div style="font-size:20px; font-weight:bold; color:#234e52;">${fmt(total_hr)} /hora</div>
-            <div style="font-size:12px; color:#285e61;">Mensual: ${fmt(total_month_sum)}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        # Resumen Tarjeta
+        st.info(f"**Total {prefix}:** ${fmt(total_hr)} /hr  (Mensual: ${fmt(total_month_sum)})")
         
         return total_month_sum, total_hr
 
@@ -277,10 +270,15 @@ if key_ind not in st.session_state:
         {"Ítem": "Otros Faena ($)", "Valor": 100000.0, "Tipo": "$ Mensual"},
     ])
 
-with st.expander("📝 Editar Costos Indirectos", expanded=True):
+with st.expander("📝 Editar Tabla de Indirectos", expanded=True):
     edited_ind = st.data_editor(
         st.session_state[key_ind],
         key="editor_indirect",
+        column_config={
+            "Ítem": st.column_config.TextColumn(disabled=True),
+            "Tipo": st.column_config.TextColumn(disabled=True),
+            "Valor": st.column_config.NumberColumn(format="%f")
+        },
         hide_index=True,
         use_container_width=True
     )
