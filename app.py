@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Personalizado para dar look "Enterprise"
+# CSS Personalizado
 st.markdown("""
 <style>
     .main {background-color: #f8f9fa;}
@@ -31,7 +31,17 @@ st.markdown("""
         border-radius: 8px;
         border: 1px solid #e0e0e0;
     }
-    .css-1d391kg {padding-top: 1rem;} 
+    /* Ajuste para que los tabs se vean mejor */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: white;
+        border-radius: 4px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1); 
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,11 +81,11 @@ if 'init' not in st.session_state:
     saved = load_config()
     st.session_state['uf_manual'] = saved.get('uf_manual', 37000.0)
     st.session_state['fuel_price'] = saved.get('fuel_price', 1000.0)
+    st.session_state['alloc_pct'] = saved.get('alloc_pct', 0.6) # Default 60%
     
-    # DataFrames Iniciales (Si no existen en el save)
+    # DataFrames Iniciales
     if 'df_harvester' in saved: st.session_state['df_harvester'] = pd.DataFrame(saved['df_harvester'])
     else:
-        # Datos Harvester (Avanzado)
         st.session_state['df_harvester'] = pd.DataFrame([
             {"Cat": "Fijos", "Ítem": "Arriendo", "Tipo": "$/Mes", "Frec": 1, "Valor": 10900000},
             {"Cat": "Fijos", "Ítem": "Operador T1", "Tipo": "$/Mes", "Frec": 1, "Valor": 1923721},
@@ -96,7 +106,7 @@ if 'init' not in st.session_state:
             {"Cat": "Variable", "Ítem": "Petróleo", "Unidad": "Litros/Día", "Valor": 135.0},
             {"Cat": "Mantención", "Ítem": "Mantención Gral", "Unidad": "$/Mes", "Valor": 1500000},
         ])
-
+    
     st.session_state['init'] = True
 
 # Helper Formato
@@ -104,7 +114,6 @@ def fmt_money(x): return f"$ {x:,.0f}".replace(",", ".")
 
 # --- 3. BARRA LATERAL ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2959/2959624.png", width=60)
     st.title("Configuración")
     
     st.subheader("1. Variables Mercado")
@@ -113,19 +122,37 @@ with st.sidebar:
     
     st.divider()
     st.subheader("2. Distribución Indirectos")
-    alloc_h = st.slider("% Asignado a Harvester", 0, 100, 60, key="alloc_pct", on_change=save_config) / 100.0
+    # Multiplicamos por 100 para visualizar, dividimos para guardar
+    default_alloc = int(st.session_state.get('alloc_pct', 0.6) * 100)
+    alloc_slider = st.slider("% Asignado a Harvester", 0, 100, default_alloc, key="alloc_slider")
     
+    # Actualizar estado si cambia el slider
+    if alloc_slider / 100.0 != st.session_state.get('alloc_pct'):
+        st.session_state['alloc_pct'] = alloc_slider / 100.0
+        save_config()
+    
+    alloc_h = st.session_state['alloc_pct']
+
     st.divider()
-    st.caption("Forestal System v3.0 Pro")
     
     # Botón Exportar Excel
     if st.button("📥 Descargar Excel"):
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            st.session_state['df_harvester'].to_excel(writer, sheet_name='Harvester')
-            st.session_state['df_forwarder'].to_excel(writer, sheet_name='Forwarder')
-            # (Aquí podrías agregar más hojas)
-        st.download_button(label="Click para Bajar .xlsx", data=output.getvalue(), file_name="Costos_Forestal.xlsx", mime="application/vnd.ms-excel")
+        try:
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                st.session_state['df_harvester'].to_excel(writer, sheet_name='Harvester', index=False)
+                st.session_state['df_forwarder'].to_excel(writer, sheet_name='Forwarder', index=False)
+                if 'df_indirectos' in st.session_state:
+                    st.session_state['df_indirectos'].to_excel(writer, sheet_name='Indirectos', index=False)
+            
+            st.download_button(
+                label="Click para Guardar .xlsx", 
+                data=output.getvalue(), 
+                file_name="Costos_Forestal.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.error(f"Error al generar Excel: {e}. Verifica haber instalado 'xlsxwriter'.")
 
 # --- 4. LÓGICA DE CÁLCULO ---
 def calc_harvester(df, days, hours, fuel_p, uf_p):
@@ -136,12 +163,16 @@ def calc_harvester(df, days, hours, fuel_p, uf_p):
     
     for _, row in df.iterrows():
         cost = 0
-        if row['Tipo'] == '$/Mes': cost = row['Valor']
-        elif row['Tipo'] == 'UF/Mes': cost = row['Valor'] * uf_p
-        elif row['Tipo'] == 'Litros/Día': cost = row['Valor'] * days * fuel_p
-        elif row['Tipo'] == '$/Ev': 
-            if row['Frec'] > 0 and total_hours > 0:
-                cost = (row['Valor'] / row['Frec']) * total_hours
+        tipo = row['Tipo']
+        valor = row['Valor']
+        
+        if tipo == '$/Mes': cost = valor
+        elif tipo == 'UF/Mes': cost = valor * uf_p
+        elif tipo == 'Litros/Día': cost = valor * days * fuel_p
+        elif tipo == '$/Ev': 
+            frec = row.get('Frec', 1)
+            if frec > 0 and total_hours > 0:
+                cost = (valor / frec) * total_hours
         
         total_m += cost
         breakdown.append({"Categoría": row['Cat'], "Costo": cost})
@@ -154,8 +185,11 @@ def calc_forwarder(df, days, hours, fuel_p):
     
     for _, row in df.iterrows():
         cost = 0
-        if row['Unidad'] == '$/Mes': cost = row['Valor']
-        elif row['Unidad'] == 'Litros/Día': cost = row['Valor'] * days * fuel_p
+        unidad = row['Unidad']
+        valor = row['Valor']
+        
+        if unidad == '$/Mes': cost = valor
+        elif unidad == 'Litros/Día': cost = valor * days * fuel_p
         
         total_m += cost
         breakdown.append({"Categoría": row['Cat'], "Costo": cost})
@@ -174,19 +208,20 @@ with tab_harv:
     c1, c2 = st.columns([1, 3])
     with c1:
         st.subheader("Parámetros")
-        h_days = st.number_input("Días/Mes", value=24, key="h_days", on_change=save_config)
-        h_hours = st.number_input("Horas/Día", value=9.0, key="h_hours", on_change=save_config)
+        h_days = st.number_input("Días/Mes", value=st.session_state.get('h_days', 24), key="h_days", on_change=save_config)
+        h_hours = st.number_input("Horas/Día", value=st.session_state.get('h_hours', 9.0), key="h_hours", on_change=save_config)
         st.info(f"Total: **{h_days * h_hours:,.0f}** horas mes")
     
     with c2:
         st.subheader("Estructura de Costos")
+        # --- AQUÍ ESTABA EL ERROR CORREGIDO ---
         edited_h = st.data_editor(
             st.session_state['df_harvester'], 
             use_container_width=True, num_rows="dynamic",
             column_config={
                 "Valor": st.column_config.NumberColumn(format="$ %d"),
-                "Tipo": st.column_config.SelectColumn(options=["$/Mes", "UF/Mes", "Litros/Día", "$/Ev"]),
-                "Cat": st.column_config.SelectColumn(options=["Fijos", "Variable", "Mantención", "Insumos", "Mayor"])
+                "Tipo": st.column_config.SelectboxColumn(options=["$/Mes", "UF/Mes", "Litros/Día", "$/Ev"], required=True),
+                "Cat": st.column_config.SelectboxColumn(options=["Fijos", "Variable", "Mantención", "Insumos", "Mayor"], required=True)
             }
         )
         st.session_state['df_harvester'] = edited_h
@@ -197,17 +232,18 @@ with tab_forw:
     c1, c2 = st.columns([1, 3])
     with c1:
         st.subheader("Parámetros")
-        f_days = st.number_input("Días/Mes Fwd", value=24, key="f_days", on_change=save_config)
-        f_hours = st.number_input("Horas/Día Fwd", value=9.0, key="f_hours", on_change=save_config)
+        f_days = st.number_input("Días/Mes Fwd", value=st.session_state.get('f_days', 24), key="f_days", on_change=save_config)
+        f_hours = st.number_input("Horas/Día Fwd", value=st.session_state.get('f_hours', 9.0), key="f_hours", on_change=save_config)
     
     with c2:
         st.subheader("Estructura Simple")
+        # --- AQUÍ TAMBIÉN CORREGIMOS EL SELECTBOX ---
         edited_f = st.data_editor(
             st.session_state['df_forwarder'], 
             use_container_width=True, num_rows="dynamic",
             column_config={
                 "Valor": st.column_config.NumberColumn(format="%f"),
-                "Unidad": st.column_config.SelectColumn(options=["$/Mes", "Litros/Día"])
+                "Unidad": st.column_config.SelectboxColumn(options=["$/Mes", "Litros/Día"], required=True)
             }
         )
         st.session_state['df_forwarder'] = edited_f
@@ -227,6 +263,8 @@ with tab_ind:
             {"Ítem": "Prevencionista", "Monto": 800000},
             {"Ítem": "Administración", "Monto": 500000}
         ])
+    elif isinstance(st.session_state['df_indirectos'], list): # Recuperar de JSON si se guardó como lista
+         st.session_state['df_indirectos'] = pd.DataFrame(st.session_state['df_indirectos'])
         
     c1, c2 = st.columns([2, 1])
     with c1:
