@@ -2,11 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
 import requests
 import json
 import os
-from datetime import datetime
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(
@@ -46,9 +44,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v16_final.json'
+CONFIG_FILE = 'forest_config_v17_fwd.json'
 
-# --- 2. GESTIÓN DE PERSISTENCIA ---
+# --- 2. PERSISTENCIA ---
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
@@ -83,8 +81,8 @@ EXPECTED_KEYS = [
     "use_auto_uf", "uf_manual", "fuel_price", 
     "conversion_factor", "sales_price_mr", "h_rev_pct",
     "h_days_month", "h_hours_day", "f_days_month", "f_hours_day",
-    "df_harvester_v16", "df_forwarder_v16", "df_indirect_v16",
-    "sim_m3_h", "sim_m3_f", "alloc_method", "h_share_pct_manual"
+    "df_harvester_v17", "df_forwarder_v17", "df_indirect_v17",
+    "alloc_method", "h_share_pct_manual"
 ]
 
 if 'config_loaded' not in st.session_state:
@@ -92,7 +90,7 @@ if 'config_loaded' not in st.session_state:
     for key in EXPECTED_KEYS:
         if key in saved_config:
             val = saved_config[key]
-            if key in ["df_harvester_v16", "df_forwarder_v16", "df_indirect_v16"]:
+            if key in ["df_harvester_v17", "df_forwarder_v17", "df_indirect_v17"]:
                 st.session_state[key] = pd.DataFrame(val)
             else:
                 st.session_state[key] = val
@@ -100,9 +98,7 @@ if 'config_loaded' not in st.session_state:
 
 # --- 3. UTILIDADES ---
 def fmt(x):
-    if isinstance(x, (int, float)):
-        return f"{x:,.0f}".replace(",", ".")
-    return x
+    return f"{x:,.0f}".replace(",", ".")
 
 def card(title, value, sub=""):
     st.markdown(f"""
@@ -155,7 +151,7 @@ with st.sidebar:
 
 # --- 5. LOGICA PRINCIPAL ---
 
-st.title("🌲 Planilla de Costos (Inputs Totales)")
+st.title("🌲 Planilla de Costos (Forwarder Detallado)")
 
 # --- A. JORNADA ---
 with st.expander("📅 Configuración de Jornada (Variables Clave)", expanded=True):
@@ -165,49 +161,51 @@ with st.expander("📅 Configuración de Jornada (Variables Clave)", expanded=Tr
         h_days = st.number_input("Días/Mes (H)", value=28, step=1, key="h_days_month", on_change=save_config)
         h_hours_day = st.number_input("Hrs/Día (H)", value=10.0, step=0.5, key="h_hours_day", on_change=save_config)
         h_total_hours = h_days * h_hours_day
-        st.caption(f"Total: {fmt(h_total_hours)} Hrs Mes")
+        st.caption(f"Divisor: {fmt(h_total_hours)} Hrs Mes")
     with c2:
         st.markdown("**Forwarder**")
         f_days = st.number_input("Días/Mes (F)", value=25, step=1, key="f_days_month", on_change=save_config)
         f_hours_day = st.number_input("Hrs/Día (F)", value=9.0, step=0.5, key="f_hours_day", on_change=save_config)
         f_total_hours = f_days * f_hours_day
-        st.caption(f"Total: {fmt(f_total_hours)} Hrs Mes")
+        st.caption(f"Divisor: {fmt(f_total_hours)} Hrs Mes")
 
 st.divider()
 
-# --- B. TABLAS DE COSTOS (LÓGICA MEJORADA) ---
+# --- B. FUNCIONES DE TABLAS ---
 
-col_tab1, col_tab2 = st.columns(2)
-
-def create_machine_table(prefix, col_obj, machine_days, machine_hours_total, fuel_p):
+def render_machine_table(prefix, col_obj, machine_days, machine_hours_total, fuel_p):
     with col_obj:
         st.subheader(f"🚜 {prefix}")
         
-        # Estructura Inicial (Si no existe)
-        initial_data = [
-            {"Categoría": "Fijos", "Ítem": "Arriendo Maquinaria", "Valor Input": 10900000 if prefix=="Harvester" else 8000000, "Unidad": "$/Mes"},
-            {"Categoría": "Fijos", "Ítem": "Sueldos Operadores", "Valor Input": 3800000 if prefix=="Harvester" else 1900000, "Unidad": "$/Mes"},
-            {"Categoría": "Fijos", "Ítem": "Seguros / Otros", "Valor Input": 750000, "Unidad": "$/Mes"},
-            
-            # FILA CLAVE: PETROLEO EN LITROS DIARIOS
-            {"Categoría": "Variable", "Ítem": "Consumo Petróleo", "Valor Input": 200.0 if prefix=="Harvester" else 135.0, "Unidad": "Litros/Día"},
-            
-            {"Categoría": "Mantención", "Ítem": "Mant. Preventiva", "Valor Input": 800000 if prefix=="Harvester" else 500000, "Unidad": "$/Mes"},
-            {"Categoría": "Mantención", "Ítem": "Mant. Correctiva", "Valor Input": 500000 if prefix=="Harvester" else 300000, "Unidad": "$/Mes"},
-            {"Categoría": "Mantención", "Ítem": "Neumáticos/Rodado", "Valor Input": 280000, "Unidad": "$/Mes"},
-            
-            {"Categoría": "Consumibles", "Ítem": "Elementos Corte", "Valor Input": 200000, "Unidad": "$/Mes"},
-            {"Categoría": "Consumibles", "Ítem": "Aceite Hidráulico", "Valor Input": 160000, "Unidad": "$/Mes"},
-            {"Categoría": "Consumibles", "Ítem": "Lubricantes/Filtros", "Valor Input": 60000, "Unidad": "$/Mes"},
-            
-            {"Categoría": "Otros", "Ítem": "Reservas/Varios", "Valor Input": 0, "Unidad": "$/Mes"},
-        ]
+        # KEY única
+        key_df = f"df_{prefix.lower()}_v17"
         
-        key_df = f"df_{prefix.lower()}_v16"
+        # Estructura Inicial (Si no existe)
         if key_df not in st.session_state:
-            st.session_state[key_df] = pd.DataFrame(initial_data)
+            if prefix == "Harvester":
+                data = [
+                    {"Categoría": "Fijos", "Ítem": "Arriendo Maquinaria", "Valor Input": 10900000, "Unidad": "$/Mes"},
+                    {"Categoría": "Fijos", "Ítem": "Sueldos Operadores", "Valor Input": 3800000, "Unidad": "$/Mes"},
+                    {"Categoría": "Variable", "Ítem": "Petróleo (Consumo)", "Valor Input": 200.0, "Unidad": "Litros/Día"},
+                    {"Categoría": "Mantención", "Ítem": "Mantenciones Varias", "Valor Input": 1300000, "Unidad": "$/Mes"},
+                    {"Categoría": "Consumibles", "Ítem": "Cadenas/Espadas", "Valor Input": 300000, "Unidad": "$/Mes"},
+                    {"Categoría": "Otros", "Ítem": "Varios", "Valor Input": 0, "Unidad": "$/Mes"},
+                ]
+            else:
+                # ESTRUCTURA ESPECÍFICA FORWARDER
+                data = [
+                    {"Categoría": "Fijos", "Ítem": "Arriendo Forwarder", "Valor Input": 8000000, "Unidad": "$/Mes"},
+                    {"Categoría": "Fijos", "Ítem": "Sueldo Operador", "Valor Input": 1900000, "Unidad": "$/Mes"},
+                    {"Categoría": "Variable", "Ítem": "Petróleo (Diesel)", "Valor Input": 135.0, "Unidad": "Litros/Día"},
+                    {"Categoría": "Mantención", "Ítem": "Mantención 600/1200 hrs", "Valor Input": 220000, "Unidad": "$/Mes"},
+                    {"Categoría": "Mantención", "Ítem": "Mantención Garra/Grúa", "Valor Input": 150000, "Unidad": "$/Mes"},
+                    {"Categoría": "Mantención", "Ítem": "Neumáticos", "Valor Input": 360000, "Unidad": "$/Mes"},
+                    {"Categoría": "Consumibles", "Ítem": "Grasa y Lubricantes", "Valor Input": 80000, "Unidad": "$/Mes"},
+                    {"Categoría": "Otros", "Ítem": "Otros Insumos", "Valor Input": 50000, "Unidad": "$/Mes"},
+                ]
+            st.session_state[key_df] = pd.DataFrame(data)
             
-        st.info("Edita 'Valor Input'. Si la unidad es **Litros/Día**, se multiplicará por Días y Petróleo.")
+        st.info("Ingresa **Litros/Día** para Petróleo. El resto en **$/Mes**.")
         
         # EDITOR
         edited_df = st.data_editor(
@@ -221,13 +219,13 @@ def create_machine_table(prefix, col_obj, machine_days, machine_hours_total, fue
             },
             hide_index=True,
             use_container_width=True,
-            height=450
+            height=350
         )
-        # Guardar inmediatamente en state
+        # Guardar inmediatamente
         st.session_state[key_df] = edited_df
         save_config()
         
-        # --- CÁLCULOS ROBUSTOS ---
+        # --- CÁLCULOS LÓGICOS ---
         total_month_sum = 0
         fuel_daily_liters = 0
         fuel_monthly_cost = 0
@@ -239,40 +237,44 @@ def create_machine_table(prefix, col_obj, machine_days, machine_hours_total, fue
             row_cost = 0
             
             if unit == "Litros/Día":
-                # Lógica Específica: LitrosDia * DiasMes * Precio
+                # LÓGICA PEDIDA: Litros Diarios * Días Trabajados de ESA máquina * Precio
                 fuel_daily_liters = val
                 fuel_monthly_cost = val * machine_days * fuel_p
                 row_cost = fuel_monthly_cost
             else:
-                # Asumimos $/Mes
+                # Asumimos $/Mes directo
                 row_cost = val
             
             total_month_sum += row_cost
             
+        # PROMEDIO POR HORA: Total Mes / Horas Mes de ESA máquina
         total_hr = total_month_sum / machine_hours_total if machine_hours_total else 0
         
         # Tarjeta Resumen
         st.success(f"**Costo Hora: ${fmt(total_hr)}**")
-        with st.expander(f"📊 Detalles Cálculo {prefix}"):
-            st.write(f"Total Mensual: **${fmt(total_month_sum)}**")
-            st.write(f"Días Trabajados: **{machine_days}**")
-            if fuel_daily_liters > 0:
-                st.write(f"---")
-                st.write(f"⛽ Petróleo: **{fuel_daily_liters} L/día**")
-                st.write(f"= {fuel_daily_liters} x {machine_days} días x ${fuel_p}")
-                st.write(f"= **${fmt(fuel_monthly_cost)}** (Mes)")
+        
+        with st.expander(f"Ver Detalle Cálculo {prefix}"):
+            st.write(f"**Cálculo Diesel:**")
+            st.caption(f"{fuel_daily_liters} L/Día x {machine_days} Días x ${fuel_p}/L = **${fmt(fuel_monthly_cost)}**")
+            st.write("---")
+            st.write(f"**Totales:**")
+            st.write(f"Gasto Mensual: **${fmt(total_month_sum)}**")
+            st.write(f"Horas a Trabajar: **{fmt(machine_hours_total)}**")
             
         return total_month_sum, total_hr
 
-# Llamada a funciones pasando los días específicos
-h_total_m, h_total_hr = create_machine_table("Harvester", col_tab1, h_days, h_total_hours, fuel_price)
-f_total_m, f_total_hr = create_machine_table("Forwarder", col_tab2, f_days, f_total_hours, fuel_price)
+# --- C. GENERAR TABLAS ---
 
-# --- C. INDIRECTOS Y FAENA ---
+col_tab1, col_tab2 = st.columns(2)
+
+h_total_m, h_total_hr = render_machine_table("Harvester", col_tab1, h_days, h_total_hours, fuel_price)
+f_total_m, f_total_hr = render_machine_table("Forwarder", col_tab2, f_days, f_total_hours, fuel_price)
+
+# --- D. INDIRECTOS ---
 st.markdown("---")
 st.subheader("🏢 Costos Indirectos (Faena)")
 
-key_ind = "df_indirect_v16"
+key_ind = "df_indirect_v17"
 if key_ind not in st.session_state:
     st.session_state[key_ind] = pd.DataFrame([
         {"Ítem": "Arriendo Camionetas", "Detalle": "Total Mes (UF)", "Valor": 38.0},
@@ -297,11 +299,11 @@ with st.expander("📝 Editar Totales Indirectos", expanded=True):
             hide_index=True,
             use_container_width=True
         )
-        st.session_state[key_ind] = edited_ind
-        save_config()
-        
     with col_i2:
         st.info("Camionetas: Ingrese UF en 'Arriendo' y $ en 'Combustible' (Total Mes).")
+    
+    st.session_state[key_ind] = edited_ind
+    save_config()
 
 # Procesar Indirectos
 def get_ind(name):
@@ -325,67 +327,4 @@ idx = alloc_opts.index(st.session_state.get("alloc_method", "Manual")) if st.ses
 alloc = st.radio("Distribución Indirectos", alloc_opts, index=idx, horizontal=True, on_change=save_config, key="alloc_method")
 
 if alloc == "Manual":
-    h_pct = st.slider("% Harvester", 0, 100, 60, key="h_share_pct_manual", on_change=save_config) / 100.0
-else:
-    tt = h_total_hours + f_total_hours
-    h_pct = h_total_hours / tt if tt > 0 else 0.5
-
-shared_h = total_shared * h_pct
-shared_f = total_shared * (1 - h_pct)
-
-# --- D. RESULTADOS FINALES ---
-st.divider()
-st.subheader("📊 Resultados Consolidados")
-
-final_h_hr = (h_total_m + shared_h) / h_total_hours if h_total_hours else 0
-final_f_hr = (f_total_m + shared_f) / f_total_hours if f_total_hours else 0
-sys_hr = final_h_hr + final_f_hr
-
-c1, c2, c3 = st.columns(3)
-with c1: card("Costo Harvester", f"${fmt(final_h_hr)}/hr", "Inc. Indirectos")
-with c2: card("Costo Forwarder", f"${fmt(final_f_hr)}/hr", "Inc. Indirectos")
-with c3: card("Costo Sistema", f"${fmt(sys_hr)}/hr", "Total Operacional")
-
-# --- SIMULADOR ---
-st.markdown("### 🧮 Simulador de Rentabilidad")
-
-col_sim_in, col_sim_out = st.columns([1, 2])
-
-with col_sim_in:
-    st.markdown("**Producción ($m^3$/hr)**")
-    m3_h = st.number_input("Harvester", value=25.0, step=0.5, key="sim_m3_h", on_change=save_config)
-    m3_f = st.number_input("Forwarder", value=28.0, step=0.5, key="sim_m3_f", on_change=save_config)
-    
-    mr_h = m3_h / conversion_factor if conversion_factor else 0
-    mr_f = m3_f / conversion_factor if conversion_factor else 0
-    mr_sys = min(mr_h, mr_f)
-
-with col_sim_out:
-    cost_sys_unit = sys_hr / mr_sys if mr_sys else 0
-    util_unit = sales_price_mr - cost_sys_unit
-    margen_pct = (util_unit / sales_price_mr * 100) if sales_price_mr else 0
-    
-    color_m = "green" if util_unit > 0 else "red"
-    st.markdown(f"""
-    <div style="background-color:#f8f9fa; border:1px solid #ddd; border-radius:10px; padding:20px; text-align:center;">
-        <h3 style="margin:0; color:#333;">Margen del Sistema Real</h3>
-        <div style="font-size:36px; font-weight:bold; color:{color_m};">{margen_pct:.1f}%</div>
-        <div style="color:#555;">Utilidad: <b>${fmt(util_unit)}</b> / MR</div>
-        <hr>
-        <div style="font-size:13px;">Prod. Real (Limitada): <b>{mr_sys:.1f} MR/hr</b></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-res_data = pd.DataFrame([
-    {"Máquina": "Harvester", "Prod (MR/h)": mr_h, "Ingreso": h_income, "Costo": (final_h_hr/mr_h) if mr_h else 0},
-    {"Máquina": "Forwarder", "Prod (MR/h)": mr_f, "Ingreso": f_income, "Costo": (final_f_hr/mr_f) if mr_f else 0},
-])
-res_data["Utilidad"] = res_data["Ingreso"] - res_data["Costo"]
-res_data["Margen %"] = (res_data["Utilidad"] / res_data["Ingreso"] * 100)
-
-st.dataframe(res_data, column_config={
-    "Ingreso": st.column_config.NumberColumn(format="$%d"),
-    "Costo": st.column_config.NumberColumn(format="$%d"),
-    "Utilidad": st.column_config.NumberColumn(format="$%d"),
-    "Margen %": st.column_config.ProgressColumn(format="%.1f%%", min_value=-0.5, max_value=0.5)
-}, hide_index=True, use_container_width=True)
+    h_pct = st.slider("% Harvester
