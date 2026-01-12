@@ -56,9 +56,8 @@ st.markdown("""
         border-radius: 10px;
         text-align: center;
         border: 1px solid #e5e7eb;
+        background-color: #f9fafb;
     }
-    .rc-title { font-weight: bold; color: #374151; margin-bottom: 5px; }
-    .rc-value { font-size: 1.5rem; font-weight: 800; }
     .stNumberInput label {
         font-weight: 600;
         color: #374151;
@@ -66,7 +65,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_margins_v8.json'
+CONFIG_FILE = 'forest_config_split_v9.json'
 
 # --- 2. GESTIÓN DE PERSISTENCIA ---
 def load_config():
@@ -99,7 +98,9 @@ EXPECTED_KEYS = [
     "others_total_Forwarder",
     # Shared
     "pickup_rent_uf", "pickup_liters_day", "pickup_days_month",
-    "support_staff", "facilities", "pension", "others_shared", "alloc_method", "h_share_pct_manual"
+    "support_staff", "facilities", "pension", "others_shared", "alloc_method", "h_share_pct_manual",
+    # Simulador Inputs Nuevos
+    "sim_m3_h", "sim_m3_f"
 ]
 
 if 'config_loaded' not in st.session_state:
@@ -177,7 +178,7 @@ with st.sidebar:
 st.title("🌲 ForestCost Analytics Pro")
 st.markdown("**Sistema de Gestión de Costos y Rentabilidad**")
 
-tab_inputs, tab_dashboard, tab_details = st.tabs(["📝 Entrada de Datos Detallada", "📊 Dashboard Ejecutivo", "📉 Simulador y Sensibilidad"])
+tab_inputs, tab_dashboard, tab_details = st.tabs(["📝 Entrada de Datos Detallada", "📊 Dashboard Ejecutivo", "📉 Simulador por Máquina"])
 
 with tab_inputs:
     
@@ -266,7 +267,7 @@ with tab_inputs:
     with st.expander("Configuración Costos Indirectos", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("##### 🛻 Camionetas (Consumo Diario)")
+            st.markdown("##### 🛻 Camionetas")
             
             cp1, cp2 = st.columns(2)
             pickup_l_day = cp1.number_input("L/Día (Total)", value=12.0, step=1.0, key="pickup_liters_day", on_change=save_config)
@@ -315,7 +316,7 @@ h_cost_hr = calc_final(h_data, total_shared, h_pct)
 f_cost_hr = calc_final(f_data, total_shared, f_pct)
 sys_cost_hr = h_cost_hr + f_cost_hr
 
-# Datos Sensibilidad
+# Datos Sensibilidad General
 prod_m3 = np.arange(10, 51, 1)
 rows = []
 for m3 in prod_m3:
@@ -323,7 +324,7 @@ for m3 in prod_m3:
     c_h_mr = h_cost_hr / mr if mr > 0 else 0
     c_f_mr = f_cost_hr / mr if mr > 0 else 0
     
-    # Márgenes Individuales y Totales
+    # Márgenes
     m_h = h_income - c_h_mr
     m_f = f_income - c_f_mr
     m_sys = sales_price_mr - (c_h_mr + c_f_mr)
@@ -382,40 +383,55 @@ with tab_dashboard:
 # TAB 3: SIMULADOR Y SENSIBILIDAD
 # ==========================================
 with tab_details:
-    st.markdown("### 🧮 Simulador de Rentabilidad por Máquina")
-    st.caption("Ingresa la producción esperada para ver el P&L detallado de cada equipo.")
+    st.markdown("### 🧮 Simulador: Ingreso de Producción por Máquina")
+    st.caption("Ingresa la producción real estimada para cada equipo. El Sistema Total se calculará según el 'Cuello de Botella' (el equipo más lento).")
     
-    # Input
-    col_in, col_dummy = st.columns([1, 2])
-    with col_in:
-        input_m3 = st.number_input("Volumen ($m^3$/hr)", value=25.0, step=0.5, key="sim_m3")
-        calc_mr = input_m3 / conversion_factor if conversion_factor else 0
-        st.markdown(f"**= {calc_mr:.1f} MR/hr**")
+    # 1. INPUTS SEPARADOS
+    col_sim_h, col_sim_f = st.columns(2)
+    with col_sim_h:
+        st.markdown("🚜 **HARVESTER**")
+        m3_h = st.number_input("Volumen Harvester ($m^3$/hr)", value=25.0, step=0.5, key="sim_m3_h", on_change=save_config)
+        mr_h = m3_h / conversion_factor if conversion_factor else 0
+        st.markdown(f"**= {mr_h:.1f} MR/hr**")
+    
+    with col_sim_f:
+        st.markdown("🚜 **FORWARDER**")
+        m3_f = st.number_input("Volumen Forwarder ($m^3$/hr)", value=28.0, step=0.5, key="sim_m3_f", on_change=save_config)
+        mr_f = m3_f / conversion_factor if conversion_factor else 0
+        st.markdown(f"**= {mr_f:.1f} MR/hr**")
+        
+    st.divider()
 
-    # Cálculos P&L
-    sim_c_h = h_cost_hr / calc_mr if calc_mr else 0
-    sim_c_f = f_cost_hr / calc_mr if calc_mr else 0
-    sim_c_sys = sys_cost_hr / calc_mr if calc_mr else 0
-    
+    # 2. CÁLCULOS P&L
+    # Harvester
+    sim_c_h = h_cost_hr / mr_h if mr_h else 0
     sim_m_h = h_income - sim_c_h
-    sim_m_f = f_income - sim_c_f
-    sim_m_sys = sales_price_mr - sim_c_sys
-    
     sim_p_h = (sim_m_h / h_income * 100) if h_income else 0
+    
+    # Forwarder
+    sim_c_f = f_cost_hr / mr_f if mr_f else 0
+    sim_m_f = f_income - sim_c_f
     sim_p_f = (sim_m_f / f_income * 100) if f_income else 0
+    
+    # Sistema (Bottleneck)
+    mr_sys = min(mr_h, mr_f) # El sistema va a la velocidad del más lento
+    sim_c_sys = sys_cost_hr / mr_sys if mr_sys else 0 # Costo total horario / Producción real del sistema
+    sim_m_sys = sales_price_mr - sim_c_sys
     sim_p_sys = (sim_m_sys / sales_price_mr * 100) if sales_price_mr else 0
     
-    # Tabla de Resultados P&L
-    st.markdown("#### Estado de Resultados Unitario ($/MR)")
-    
-    def result_card(label, val_inc, val_cost, val_util, val_pct):
+    # 3. TARJETAS DE RESULTADO
+    def result_card(label, prod_val, val_inc, val_cost, val_util, val_pct, bottleneck=False):
         color = "#dcfce7" if val_util > 0 else "#fee2e2"
         text_color = "#166534" if val_util > 0 else "#991b1b"
+        border = "2px solid #ef4444" if bottleneck else f"1px solid {text_color}"
+        warn = "⚠️ CUELLO DE BOTELLA" if bottleneck else ""
         
         st.markdown(f"""
-        <div style="background-color: {color}; padding: 15px; border-radius: 8px; border: 1px solid {text_color}; text-align: center;">
+        <div style="background-color: {color}; padding: 15px; border-radius: 8px; border: {border}; text-align: center;">
             <div style="font-weight: bold; color: #374151; margin-bottom: 5px;">{label}</div>
-            <div style="font-size: 14px; color: #4b5563;">
+            <div style="font-size: 12px; font-weight:bold; color: #b91c1c;">{warn}</div>
+            <div style="font-size: 13px; color: #4b5563; margin-top:5px;">
+                Prod: {prod_val:.1f} MR/hr <br>
                 Ingreso: ${fmt(val_inc)} <br>
                 Costo: -${fmt(val_cost)}
             </div>
@@ -427,13 +443,19 @@ with tab_details:
         </div>
         """, unsafe_allow_html=True)
 
-    c_sim1, c_sim2, c_sim3 = st.columns(3)
-    with c_sim1: result_card("🚜 Harvester", h_income, sim_c_h, sim_m_h, sim_p_h)
-    with c_sim2: result_card("🚜 Forwarder", f_income, sim_c_f, sim_m_f, sim_p_f)
-    with c_sim3: result_card("🌲 SISTEMA TOTAL", sales_price_mr, sim_c_sys, sim_m_sys, sim_p_sys)
+    c_r1, c_r2, c_r3 = st.columns(3)
+    
+    with c_r1: 
+        result_card("🚜 HARVESTER", mr_h, h_income, sim_c_h, sim_m_h, sim_p_h, bottleneck=(mr_h < mr_f))
+    with c_r2: 
+        result_card("🚜 FORWARDER", mr_f, f_income, sim_c_f, sim_m_f, sim_p_f, bottleneck=(mr_f < mr_h))
+    with c_r3: 
+        # Sistema Total
+        result_card("🌲 SISTEMA REAL (Limitado)", mr_sys, sales_price_mr, sim_c_sys, sim_m_sys, sim_p_sys)
 
     st.divider()
-    st.subheader("📉 Tabla de Sensibilidad Completa")
+    st.subheader("📉 Tabla de Sensibilidad General")
+    st.caption("Escenarios variando productividad global equilibrada")
     
     st.dataframe(df_sens, column_config={
         "Prod M3": st.column_config.NumberColumn("M3/hr", format="%d"),
