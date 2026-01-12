@@ -43,7 +43,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v5_stable.json'
+CONFIG_FILE = 'forest_config_v6_final.json'
 
 # --- 2. FUNCIONES AUXILIARES (API Y PERSISTENCIA) ---
 
@@ -69,8 +69,11 @@ class NumpyEncoder(json.JSONEncoder):
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {} # Si el archivo está corrupto, retorna vacío
     return {}
 
 def save_config():
@@ -89,16 +92,26 @@ def save_config():
     with open(CONFIG_FILE, 'w') as f:
         json.dump(state_to_save, f, cls=NumpyEncoder)
 
-# Inicializar State con valores seguros por defecto
+# --- FUNCIÓN DE SEGURIDAD PARA CARGAR NÚMEROS ---
+def safe_float(val, default_val):
+    try:
+        if val is None: return default_val
+        return float(val)
+    except (ValueError, TypeError):
+        return default_val
+
+# Inicializar State
 if 'init' not in st.session_state:
     saved = load_config()
-    st.session_state['uf_manual'] = float(saved.get('uf_manual', 38000.0))
-    st.session_state['fuel_price'] = float(saved.get('fuel_price', 1000.0))
-    st.session_state['alloc_pct'] = float(saved.get('alloc_pct', 0.6))
-    st.session_state['sales_price'] = float(saved.get('sales_price', 12000.0))
-    st.session_state['monthly_prod'] = float(saved.get('monthly_prod', 4500.0))
     
-    # DataFrames
+    # Aquí aplicamos la función de seguridad safe_float
+    st.session_state['uf_manual'] = safe_float(saved.get('uf_manual'), 38000.0)
+    st.session_state['fuel_price'] = safe_float(saved.get('fuel_price'), 1000.0)
+    st.session_state['alloc_pct'] = safe_float(saved.get('alloc_pct'), 0.6)
+    st.session_state['sales_price'] = safe_float(saved.get('sales_price'), 12000.0)
+    st.session_state['monthly_prod'] = safe_float(saved.get('monthly_prod'), 4500.0)
+    
+    # Cargar DataFrames
     if 'df_harvester' in saved: st.session_state['df_harvester'] = pd.DataFrame(saved['df_harvester'])
     else:
         st.session_state['df_harvester'] = pd.DataFrame([
@@ -138,12 +151,14 @@ with st.sidebar:
             uf_val = api_val
             st.success(f"UF Hoy ({api_date}): ${api_val:,.2f}")
     
+    # Input UF
     curr_uf = st.number_input("Valor UF ($)", value=float(uf_val), disabled=use_api and 'api_val' in locals() and api_val is not None, key="uf_input")
     
     if curr_uf != st.session_state.get('uf_manual'):
         st.session_state['uf_manual'] = curr_uf
         save_config()
 
+    # Input Petróleo
     curr_fuel = st.number_input("Diesel ($/Lt)", value=float(st.session_state.get('fuel_price', 1000.0)), key="fuel_price", on_change=save_config)
     
     st.divider()
@@ -151,12 +166,12 @@ with st.sidebar:
     # B. VENTAS Y PRODUCCIÓN
     st.subheader("2. Venta y Producción")
     
-    # IMPORTANTE: Aseguramos que los valores recuperados no sean None
-    def_sales = st.session_state.get('sales_price') if st.session_state.get('sales_price') is not None else 12000.0
-    def_prod = st.session_state.get('monthly_prod') if st.session_state.get('monthly_prod') is not None else 4500.0
-    
-    curr_sales_price = st.number_input("Precio Venta ($/m³)", value=float(def_sales), key="sales_price", on_change=save_config)
-    curr_prod = st.number_input("Producción Mensual (m³)", value=float(def_prod), key="monthly_prod", on_change=save_config)
+    # Recuperación segura de valores
+    val_sales = st.session_state.get('sales_price', 12000.0)
+    val_prod = st.session_state.get('monthly_prod', 4500.0)
+
+    curr_sales_price = st.number_input("Precio Venta ($/m³)", value=float(val_sales), key="sales_price", on_change=save_config)
+    curr_prod = st.number_input("Producción Mensual (m³)", value=float(val_prod), key="monthly_prod", on_change=save_config)
 
     st.divider()
 
@@ -165,8 +180,10 @@ with st.sidebar:
     st.info("Define el % de Costos Indirectos para Harvester.")
     
     raw_alloc = st.session_state.get('alloc_pct', 0.6)
+    # Corrección de rango
     if raw_alloc is None: raw_alloc = 0.6
     if raw_alloc > 1.0: raw_alloc = raw_alloc / 100.0
+    raw_alloc = max(0.0, min(1.0, raw_alloc))
     
     default_alloc_int = int(raw_alloc * 100)
     
@@ -203,7 +220,6 @@ def calc_harvester(df, days, hours, fuel_p, uf_p):
     for _, row in df.iterrows():
         cost = 0
         tipo, valor = row['Tipo'], row['Valor']
-        # Protección contra None
         if valor is None: valor = 0.0
         
         if tipo == '$/Mes': cost = valor
@@ -222,7 +238,6 @@ def calc_forwarder(df, days, hours, fuel_p):
     for _, row in df.iterrows():
         cost = 0
         unidad, valor = row['Unidad'], row['Valor']
-        # Protección contra None
         if valor is None: valor = 0.0
         
         if unidad == '$/Mes': cost = valor
@@ -292,7 +307,7 @@ with tab_ind:
         st.session_state['df_indirectos'] = edited_ind
         save_config()
     
-    total_ind = edited_ind['Monto'].fillna(0).sum() # Fix para sumas nulas
+    total_ind = edited_ind['Monto'].fillna(0).sum()
     with c2:
         st.metric("Total Indirectos", fmt_money(total_ind))
         
@@ -305,9 +320,8 @@ with tab_ind:
 
 # --- TAB 1: RESULTADOS ---
 with tab_res:
-    # 1. Cálculos de Negocio - BLINDAJE CONTRA EL ERROR DE MULTIPLICACIÓN
-    
-    # Aseguramos que las variables sean números (0.0 si son None)
+    # 1. Cálculos de Negocio
+    # Blindaje contra nulos en el cálculo final
     safe_prod = curr_prod if curr_prod is not None else 0.0
     safe_price = curr_sales_price if curr_sales_price is not None else 0.0
     
@@ -331,7 +345,6 @@ with tab_res:
     
     st.divider()
 
-    # Desglose por Máquina (Usando el % asignado)
     c_h, c_f = st.columns(2)
     
     with c_h:
@@ -348,7 +361,6 @@ with tab_res:
         st.write(f"Costo Directo: **{fmt_money(cost_f)}**")
         st.write(f"Indirecto ({(1-alloc_h)*100:.0f}%): **{fmt_money(total_ind * (1-alloc_h))}**")
         st.info(f"Costo Total: **{fmt_money(total_cost_f)}**")
-        # Gráfico barras comparativo
         df_comp = pd.DataFrame({
             "Tipo": ["Directo", "Indirecto"],
             "Monto": [cost_f, total_ind * (1-alloc_h)]
