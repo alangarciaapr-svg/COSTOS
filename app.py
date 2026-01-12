@@ -47,7 +47,6 @@ CONFIG_FILE = 'forest_config_v4_auto.json'
 
 # --- 2. FUNCIONES AUXILIARES (API Y PERSISTENCIA) ---
 
-# Función Caché para no llamar a la API a cada rato
 @st.cache_data(ttl=3600) # Expira cada 1 hora
 def get_uf_api():
     try:
@@ -56,7 +55,7 @@ def get_uf_api():
         if response.status_code == 200:
             data = response.json()
             valor = data['serie'][0]['valor']
-            fecha = data['serie'][0]['fecha'][:10] # YYYY-MM-DD
+            fecha = data['serie'][0]['fecha'][:10]
             return valor, fecha
     except Exception as e:
         return None, None
@@ -75,7 +74,6 @@ def load_config():
     return {}
 
 def save_config():
-    # Agregamos precio_venta a las llaves a guardar
     keys = ["uf_manual", "fuel_price", "h_days", "h_hours", "f_days", "f_hours", 
             "df_harvester", "df_forwarder", "df_indirectos", "pickup_days", "alloc_pct", "sales_price", "monthly_prod"]
     
@@ -97,8 +95,8 @@ if 'init' not in st.session_state:
     st.session_state['uf_manual'] = saved.get('uf_manual', 38000.0)
     st.session_state['fuel_price'] = saved.get('fuel_price', 1000.0)
     st.session_state['alloc_pct'] = saved.get('alloc_pct', 0.6)
-    st.session_state['sales_price'] = saved.get('sales_price', 12000.0) # Precio Venta Default
-    st.session_state['monthly_prod'] = saved.get('monthly_prod', 4500.0) # Prod Mensual Default
+    st.session_state['sales_price'] = saved.get('sales_price', 12000.0)
+    st.session_state['monthly_prod'] = saved.get('monthly_prod', 4500.0)
     
     # DataFrames
     if 'df_harvester' in saved: st.session_state['df_harvester'] = pd.DataFrame(saved['df_harvester'])
@@ -142,10 +140,8 @@ with st.sidebar:
         else:
             st.warning("Error API. Usando valor manual.")
     
-    # Input UF (Deshabilitado si API funciona, o editable si no)
     curr_uf = st.number_input("Valor UF ($)", value=float(uf_val), disabled=use_api and api_val is not None, key="uf_input")
     
-    # Actualizar session state
     if curr_uf != st.session_state.get('uf_manual'):
         st.session_state['uf_manual'] = curr_uf
         save_config()
@@ -163,12 +159,16 @@ with st.sidebar:
 
     # C. DISTRIBUCIÓN UNIFICADA
     st.subheader("3. Asignación Unificada")
-    st.info("Define el % de Costos Fijos y Responsabilidad para Harvester. El resto va a Forwarder.")
+    st.info("Define el % de Costos Indirectos para Harvester.")
     
-    default_alloc = int(st.session_state.get('alloc_pct', 0.6) * 100)
+    # Aseguramos que el valor default sea válido
+    raw_alloc = st.session_state.get('alloc_pct', 0.6)
+    if raw_alloc > 1.0: raw_alloc = raw_alloc / 100.0
+    default_alloc = int(raw_alloc * 100)
+    
     alloc_slider = st.slider("% Asignado a Harvester", 0, 100, default_alloc, key="alloc_slider")
     
-    # Guardar porcentaje
+    # Guardar porcentaje como decimal (0.6)
     new_pct = alloc_slider / 100.0
     if new_pct != st.session_state.get('alloc_pct'):
         st.session_state['alloc_pct'] = new_pct
@@ -177,13 +177,12 @@ with st.sidebar:
     alloc_h = st.session_state['alloc_pct']
     
     st.markdown(f"""
-    * **Harvester:** {alloc_h*100:.0f}% de Costos Indirectos
-    * **Forwarder:** {(1-alloc_h)*100:.0f}% de Costos Indirectos
+    * **Harvester:** {alloc_h*100:.0f}% 
+    * **Forwarder:** {(1-alloc_h)*100:.0f}% 
     """)
 
     st.divider()
     
-    # Botón Excel
     if st.button("📥 Descargar Excel"):
         output = io.BytesIO()
         try:
@@ -290,8 +289,17 @@ with tab_ind:
     total_ind = edited_ind['Monto'].sum()
     with c2:
         st.metric("Total Indirectos", fmt_money(total_ind))
-        st.progress(alloc_h)
-        st.caption(f"Se asigna {alloc_h*100}% a Harvester según slider.")
+        
+        # --- CORRECCIÓN DE SEGURIDAD (FIX) ---
+        safe_alloc = float(alloc_h)
+        # Si el valor está corrupto (> 1.0), lo normalizamos
+        if safe_alloc > 1.0: safe_alloc = safe_alloc / 100.0
+        # Forzamos los límites entre 0.0 y 1.0
+        safe_alloc = max(0.0, min(1.0, safe_alloc))
+        # -------------------------------------
+        
+        st.progress(safe_alloc)
+        st.caption(f"Se asigna {safe_alloc*100:.0f}% a Harvester según slider.")
 
 # --- TAB 1: RESULTADOS ---
 with tab_res:
