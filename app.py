@@ -43,11 +43,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v4_auto.json'
+CONFIG_FILE = 'forest_config_v5_stable.json'
 
 # --- 2. FUNCIONES AUXILIARES (API Y PERSISTENCIA) ---
 
-@st.cache_data(ttl=3600) # Expira cada 1 hora
+@st.cache_data(ttl=3600) 
 def get_uf_api():
     try:
         url = "https://mindicador.cl/api/uf"
@@ -89,14 +89,14 @@ def save_config():
     with open(CONFIG_FILE, 'w') as f:
         json.dump(state_to_save, f, cls=NumpyEncoder)
 
-# Inicializar State
+# Inicializar State con valores seguros por defecto
 if 'init' not in st.session_state:
     saved = load_config()
-    st.session_state['uf_manual'] = saved.get('uf_manual', 38000.0)
-    st.session_state['fuel_price'] = saved.get('fuel_price', 1000.0)
-    st.session_state['alloc_pct'] = saved.get('alloc_pct', 0.6)
-    st.session_state['sales_price'] = saved.get('sales_price', 12000.0)
-    st.session_state['monthly_prod'] = saved.get('monthly_prod', 4500.0)
+    st.session_state['uf_manual'] = float(saved.get('uf_manual', 38000.0))
+    st.session_state['fuel_price'] = float(saved.get('fuel_price', 1000.0))
+    st.session_state['alloc_pct'] = float(saved.get('alloc_pct', 0.6))
+    st.session_state['sales_price'] = float(saved.get('sales_price', 12000.0))
+    st.session_state['monthly_prod'] = float(saved.get('monthly_prod', 4500.0))
     
     # DataFrames
     if 'df_harvester' in saved: st.session_state['df_harvester'] = pd.DataFrame(saved['df_harvester'])
@@ -137,23 +137,26 @@ with st.sidebar:
         if api_val:
             uf_val = api_val
             st.success(f"UF Hoy ({api_date}): ${api_val:,.2f}")
-        else:
-            st.warning("Error API. Usando valor manual.")
     
-    curr_uf = st.number_input("Valor UF ($)", value=float(uf_val), disabled=use_api and api_val is not None, key="uf_input")
+    curr_uf = st.number_input("Valor UF ($)", value=float(uf_val), disabled=use_api and 'api_val' in locals() and api_val is not None, key="uf_input")
     
     if curr_uf != st.session_state.get('uf_manual'):
         st.session_state['uf_manual'] = curr_uf
         save_config()
 
-    curr_fuel = st.number_input("Diesel ($/Lt)", value=st.session_state.get('fuel_price', 1000.0), key="fuel_price", on_change=save_config)
+    curr_fuel = st.number_input("Diesel ($/Lt)", value=float(st.session_state.get('fuel_price', 1000.0)), key="fuel_price", on_change=save_config)
     
     st.divider()
     
     # B. VENTAS Y PRODUCCIÓN
     st.subheader("2. Venta y Producción")
-    curr_sales_price = st.number_input("Precio Venta ($/m³)", value=st.session_state.get('sales_price'), key="sales_price", on_change=save_config)
-    curr_prod = st.number_input("Producción Mensual (m³)", value=st.session_state.get('monthly_prod'), key="monthly_prod", on_change=save_config)
+    
+    # IMPORTANTE: Aseguramos que los valores recuperados no sean None
+    def_sales = st.session_state.get('sales_price') if st.session_state.get('sales_price') is not None else 12000.0
+    def_prod = st.session_state.get('monthly_prod') if st.session_state.get('monthly_prod') is not None else 4500.0
+    
+    curr_sales_price = st.number_input("Precio Venta ($/m³)", value=float(def_sales), key="sales_price", on_change=save_config)
+    curr_prod = st.number_input("Producción Mensual (m³)", value=float(def_prod), key="monthly_prod", on_change=save_config)
 
     st.divider()
 
@@ -161,14 +164,14 @@ with st.sidebar:
     st.subheader("3. Asignación Unificada")
     st.info("Define el % de Costos Indirectos para Harvester.")
     
-    # Aseguramos que el valor default sea válido
     raw_alloc = st.session_state.get('alloc_pct', 0.6)
+    if raw_alloc is None: raw_alloc = 0.6
     if raw_alloc > 1.0: raw_alloc = raw_alloc / 100.0
-    default_alloc = int(raw_alloc * 100)
     
-    alloc_slider = st.slider("% Asignado a Harvester", 0, 100, default_alloc, key="alloc_slider")
+    default_alloc_int = int(raw_alloc * 100)
     
-    # Guardar porcentaje como decimal (0.6)
+    alloc_slider = st.slider("% Asignado a Harvester", 0, 100, default_alloc_int, key="alloc_slider")
+    
     new_pct = alloc_slider / 100.0
     if new_pct != st.session_state.get('alloc_pct'):
         st.session_state['alloc_pct'] = new_pct
@@ -176,10 +179,7 @@ with st.sidebar:
     
     alloc_h = st.session_state['alloc_pct']
     
-    st.markdown(f"""
-    * **Harvester:** {alloc_h*100:.0f}% 
-    * **Forwarder:** {(1-alloc_h)*100:.0f}% 
-    """)
+    st.markdown(f"* **Harvester:** {alloc_h*100:.0f}% \n* **Forwarder:** {(1-alloc_h)*100:.0f}%")
 
     st.divider()
     
@@ -203,6 +203,9 @@ def calc_harvester(df, days, hours, fuel_p, uf_p):
     for _, row in df.iterrows():
         cost = 0
         tipo, valor = row['Tipo'], row['Valor']
+        # Protección contra None
+        if valor is None: valor = 0.0
+        
         if tipo == '$/Mes': cost = valor
         elif tipo == 'UF/Mes': cost = valor * uf_p
         elif tipo == 'Litros/Día': cost = valor * days * fuel_p
@@ -219,6 +222,9 @@ def calc_forwarder(df, days, hours, fuel_p):
     for _, row in df.iterrows():
         cost = 0
         unidad, valor = row['Unidad'], row['Valor']
+        # Protección contra None
+        if valor is None: valor = 0.0
+        
         if unidad == '$/Mes': cost = valor
         elif unidad == 'Litros/Día': cost = valor * days * fuel_p
         total_m += cost
@@ -235,14 +241,14 @@ with tab_harv:
     c1, c2 = st.columns([1, 3])
     with c1:
         st.subheader("Parámetros H")
-        h_days = st.number_input("Días/Mes H", value=st.session_state.get('h_days', 24), key="h_days", on_change=save_config)
-        h_hours = st.number_input("Horas/Día H", value=st.session_state.get('h_hours', 9.0), key="h_hours", on_change=save_config)
+        h_days = st.number_input("Días/Mes H", value=int(st.session_state.get('h_days', 24)), key="h_days", on_change=save_config)
+        h_hours = st.number_input("Horas/Día H", value=float(st.session_state.get('h_hours', 9.0)), key="h_hours", on_change=save_config)
         st.caption(f"Horas Totales: {h_days * h_hours}")
     with c2:
         edited_h = st.data_editor(
             st.session_state['df_harvester'], use_container_width=True, num_rows="dynamic",
             column_config={
-                "Valor": st.column_config.NumberColumn(format="$ %d"),
+                "Valor": st.column_config.NumberColumn(format="$ %d", default=0),
                 "Tipo": st.column_config.SelectboxColumn(options=["$/Mes", "UF/Mes", "Litros/Día", "$/Ev"], required=True),
                 "Cat": st.column_config.SelectboxColumn(options=["Fijos", "Variable", "Mantención", "Insumos", "Mayor"], required=True)
             }
@@ -255,13 +261,13 @@ with tab_forw:
     c1, c2 = st.columns([1, 3])
     with c1:
         st.subheader("Parámetros F")
-        f_days = st.number_input("Días/Mes F", value=st.session_state.get('f_days', 24), key="f_days", on_change=save_config)
-        f_hours = st.number_input("Horas/Día F", value=st.session_state.get('f_hours', 9.0), key="f_hours", on_change=save_config)
+        f_days = st.number_input("Días/Mes F", value=int(st.session_state.get('f_days', 24)), key="f_days", on_change=save_config)
+        f_hours = st.number_input("Horas/Día F", value=float(st.session_state.get('f_hours', 9.0)), key="f_hours", on_change=save_config)
     with c2:
         edited_f = st.data_editor(
             st.session_state['df_forwarder'], use_container_width=True, num_rows="dynamic",
             column_config={
-                "Valor": st.column_config.NumberColumn(format="%f"),
+                "Valor": st.column_config.NumberColumn(format="%f", default=0),
                 "Unidad": st.column_config.SelectboxColumn(options=["$/Mes", "Litros/Día"], required=True)
             }
         )
@@ -282,29 +288,30 @@ with tab_ind:
     c1, c2 = st.columns([2, 1])
     with c1:
         edited_ind = st.data_editor(st.session_state['df_indirectos'], use_container_width=True, num_rows="dynamic",
-                                   column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
+                                   column_config={"Monto": st.column_config.NumberColumn(format="$ %d", default=0)})
         st.session_state['df_indirectos'] = edited_ind
         save_config()
     
-    total_ind = edited_ind['Monto'].sum()
+    total_ind = edited_ind['Monto'].fillna(0).sum() # Fix para sumas nulas
     with c2:
         st.metric("Total Indirectos", fmt_money(total_ind))
         
-        # --- CORRECCIÓN DE SEGURIDAD (FIX) ---
         safe_alloc = float(alloc_h)
-        # Si el valor está corrupto (> 1.0), lo normalizamos
         if safe_alloc > 1.0: safe_alloc = safe_alloc / 100.0
-        # Forzamos los límites entre 0.0 y 1.0
         safe_alloc = max(0.0, min(1.0, safe_alloc))
-        # -------------------------------------
         
         st.progress(safe_alloc)
         st.caption(f"Se asigna {safe_alloc*100:.0f}% a Harvester según slider.")
 
 # --- TAB 1: RESULTADOS ---
 with tab_res:
-    # 1. Cálculos de Negocio
-    total_sales = curr_prod * curr_sales_price
+    # 1. Cálculos de Negocio - BLINDAJE CONTRA EL ERROR DE MULTIPLICACIÓN
+    
+    # Aseguramos que las variables sean números (0.0 si son None)
+    safe_prod = curr_prod if curr_prod is not None else 0.0
+    safe_price = curr_sales_price if curr_sales_price is not None else 0.0
+    
+    total_sales = safe_prod * safe_price
     
     total_cost_h = cost_h + (total_ind * alloc_h)
     total_cost_f = cost_f + (total_ind * (1-alloc_h))
@@ -317,7 +324,7 @@ with tab_res:
     
     # KPIs Superiores
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Ventas Totales", fmt_money(total_sales), f"{curr_prod:,.0f} m³")
+    k1.metric("Ventas Totales", fmt_money(total_sales), f"{safe_prod:,.0f} m³")
     k2.metric("Costo Total", fmt_money(total_cost_global), "- Operativo + Ind.")
     k3.metric("Margen ($)", fmt_money(margin_global), delta_color="normal")
     k4.metric("Margen (%)", f"{margin_pct:.1f}%", delta=f"{margin_pct:.1f}%")
