@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ESTILOS CSS PROFESIONALES
+# ESTILOS CSS
 st.markdown("""
 <style>
     .metric-card {
@@ -51,18 +51,14 @@ st.markdown("""
         margin-bottom: 15px;
         color: #166534;
     }
-    .calc-box {
-        background-color: #e3f2fd;
-        border: 1px solid #90caf9;
-        padding: 20px;
+    .result-card {
+        padding: 15px;
         border-radius: 10px;
         text-align: center;
+        border: 1px solid #e5e7eb;
     }
-    .calc-result {
-        font-size: 2rem;
-        font-weight: bold;
-        color: #1565c0;
-    }
+    .rc-title { font-weight: bold; color: #374151; margin-bottom: 5px; }
+    .rc-value { font-size: 1.5rem; font-weight: 800; }
     .stNumberInput label {
         font-weight: 600;
         color: #374151;
@@ -70,7 +66,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_calc_v7.json'
+CONFIG_FILE = 'forest_config_margins_v8.json'
 
 # --- 2. GESTIÓN DE PERSISTENCIA ---
 def load_config():
@@ -181,7 +177,7 @@ with st.sidebar:
 st.title("🌲 ForestCost Analytics Pro")
 st.markdown("**Sistema de Gestión de Costos y Rentabilidad**")
 
-tab_inputs, tab_dashboard, tab_details = st.tabs(["📝 Entrada de Datos Detallada", "📊 Dashboard Ejecutivo", "📉 Análisis Sensibilidad"])
+tab_inputs, tab_dashboard, tab_details = st.tabs(["📝 Entrada de Datos Detallada", "📊 Dashboard Ejecutivo", "📉 Simulador y Sensibilidad"])
 
 with tab_inputs:
     
@@ -327,7 +323,7 @@ for m3 in prod_m3:
     c_h_mr = h_cost_hr / mr if mr > 0 else 0
     c_f_mr = f_cost_hr / mr if mr > 0 else 0
     
-    # Márgenes
+    # Márgenes Individuales y Totales
     m_h = h_income - c_h_mr
     m_f = f_income - c_f_mr
     m_sys = sales_price_mr - (c_h_mr + c_f_mr)
@@ -383,40 +379,61 @@ with tab_dashboard:
         st.plotly_chart(fig_pie, use_container_width=True)
 
 # ==========================================
-# TAB 3: SENSIBILIDAD
+# TAB 3: SIMULADOR Y SENSIBILIDAD
 # ==========================================
 with tab_details:
-    st.markdown("### 🧮 Calculadora de Rentabilidad Puntual")
-    st.caption("Ingresa un volumen de producción específico para ver el resultado exacto sin buscar en la tabla.")
+    st.markdown("### 🧮 Simulador de Rentabilidad por Máquina")
+    st.caption("Ingresa la producción esperada para ver el P&L detallado de cada equipo.")
     
-    with st.container():
-        st.markdown('<div class="calc-box">', unsafe_allow_html=True)
-        col_calc1, col_calc2, col_calc3 = st.columns(3)
+    # Input
+    col_in, col_dummy = st.columns([1, 2])
+    with col_in:
+        input_m3 = st.number_input("Volumen ($m^3$/hr)", value=25.0, step=0.5, key="sim_m3")
+        calc_mr = input_m3 / conversion_factor if conversion_factor else 0
+        st.markdown(f"**= {calc_mr:.1f} MR/hr**")
+
+    # Cálculos P&L
+    sim_c_h = h_cost_hr / calc_mr if calc_mr else 0
+    sim_c_f = f_cost_hr / calc_mr if calc_mr else 0
+    sim_c_sys = sys_cost_hr / calc_mr if calc_mr else 0
+    
+    sim_m_h = h_income - sim_c_h
+    sim_m_f = f_income - sim_c_f
+    sim_m_sys = sales_price_mr - sim_c_sys
+    
+    sim_p_h = (sim_m_h / h_income * 100) if h_income else 0
+    sim_p_f = (sim_m_f / f_income * 100) if f_income else 0
+    sim_p_sys = (sim_m_sys / sales_price_mr * 100) if sales_price_mr else 0
+    
+    # Tabla de Resultados P&L
+    st.markdown("#### Estado de Resultados Unitario ($/MR)")
+    
+    def result_card(label, val_inc, val_cost, val_util, val_pct):
+        color = "#dcfce7" if val_util > 0 else "#fee2e2"
+        text_color = "#166534" if val_util > 0 else "#991b1b"
         
-        with col_calc1:
-            input_m3 = st.number_input("Ingresa Volumen ($m^3$/hr)", value=25.0, step=0.5)
-            calc_mr = input_m3 / conversion_factor if conversion_factor else 0
-            st.markdown(f"**= {calc_mr:.2f} MR/hr**")
-            
-        with col_calc2:
-            calc_cost = sys_cost_hr / calc_mr if calc_mr else 0
-            st.metric("Costo Unitario", f"${fmt(calc_cost)}")
-            
-        with col_calc3:
-            calc_margin = sales_price_mr - calc_cost
-            calc_pct = (calc_margin / sales_price_mr * 100) if sales_price_mr else 0
-            
-            color = "green" if calc_pct > 0 else "red"
-            st.markdown(f"""
-            <div style="text-align:center;">
-                <span style="font-size:14px; color:#555;">Margen Obtenido</span><br>
-                <span class="calc-result" style="color:{color}">{calc_pct:.1f}%</span>
+        st.markdown(f"""
+        <div style="background-color: {color}; padding: 15px; border-radius: 8px; border: 1px solid {text_color}; text-align: center;">
+            <div style="font-weight: bold; color: #374151; margin-bottom: 5px;">{label}</div>
+            <div style="font-size: 14px; color: #4b5563;">
+                Ingreso: ${fmt(val_inc)} <br>
+                Costo: -${fmt(val_cost)}
             </div>
-            """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
+            <hr style="border-color: {text_color}; opacity: 0.3; margin: 8px 0;">
+            <div style="font-size: 18px; font-weight: 800; color: {text_color};">
+                Utilidad: ${fmt(val_util)} <br>
+                ({val_pct:.1f}%)
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    c_sim1, c_sim2, c_sim3 = st.columns(3)
+    with c_sim1: result_card("🚜 Harvester", h_income, sim_c_h, sim_m_h, sim_p_h)
+    with c_sim2: result_card("🚜 Forwarder", f_income, sim_c_f, sim_m_f, sim_p_f)
+    with c_sim3: result_card("🌲 SISTEMA TOTAL", sales_price_mr, sim_c_sys, sim_m_sys, sim_p_sys)
+
     st.divider()
-    st.subheader("📉 Tabla de Sensibilidad Detallada")
+    st.subheader("📉 Tabla de Sensibilidad Completa")
     
     st.dataframe(df_sens, column_config={
         "Prod M3": st.column_config.NumberColumn("M3/hr", format="%d"),
