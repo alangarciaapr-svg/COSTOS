@@ -61,9 +61,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_master_v9_stable.json'
+CONFIG_FILE = 'forest_config_master_v10_final.json'
 
-# --- 2. FUNCIONES BACKEND (GLOBALES) ---
+# --- 2. FUNCIONES BACKEND (GLOBALES - AQUÍ ESTÁ LA CORRECCIÓN) ---
+
+def fmt_money(x): 
+    """Formatea números como moneda CLP"""
+    return f"$ {x:,.0f}".replace(",", ".")
+
+def calc_price(cost, margin_pct):
+    """Calcula el precio de venta necesario para obtener un margen % sobre la venta"""
+    factor = 1 - (margin_pct / 100.0)
+    return cost / factor if factor > 0 else 0
 
 @st.cache_data(ttl=3600) 
 def get_uf_api():
@@ -105,14 +114,37 @@ def save_config():
     with open(CONFIG_FILE, 'w') as f:
         json.dump(state_to_save, f, cls=NumpyEncoder)
 
-def fmt_money(x): 
-    return f"$ {x:,.0f}".replace(",", ".")
+def calculate_system_costs(h_df, f_df, rrhh_df, flota_df, days_h, hrs_h, days_f, hrs_f, uf, diesel):
+    # Harvester
+    total_h = 0
+    total_h_hrs = days_h * hrs_h
+    for _, row in h_df.iterrows():
+        val = row['Valor'] or 0
+        tipo = row['Tipo']
+        cost = 0
+        if tipo == '$/Mes': cost = val
+        elif tipo == 'UF/Mes': cost = val * uf
+        elif tipo == 'Litros/Día': cost = val * days_h * diesel
+        elif tipo == '$/Ev': 
+            frec = row.get('Frec', 1)
+            if frec > 0 and total_h_hrs > 0: cost = (val / frec) * total_h_hrs
+        total_h += cost
 
-# --- AQUÍ ESTÁ LA CORRECCIÓN: FUNCIÓN GLOBAL ---
-def calc_price(cost, margin_pct):
-    """Calcula el precio de venta necesario para obtener un margen % sobre la venta"""
-    factor = 1 - (margin_pct / 100.0)
-    return cost / factor if factor > 0 else 0
+    # Forwarder
+    total_f = 0
+    total_f_hrs = days_f * hrs_f
+    for _, row in f_df.iterrows():
+        val = row['Valor'] or 0
+        tipo = row['Unidad']
+        cost = 0
+        if tipo == '$/Mes': cost = val
+        elif tipo == 'Litros/Día': cost = val * days_f * diesel
+        total_f += cost
+
+    # Indirectos
+    total_indirect = rrhh_df['Costo Empresa'].sum() + flota_df['Monto'].sum()
+
+    return total_h, total_f, total_indirect, total_h_hrs, total_f_hrs
 
 # --- 3. INICIALIZACIÓN ---
 saved = load_config()
@@ -128,6 +160,7 @@ def init_key(key, default_value):
         else:
             st.session_state[key] = default_value
 
+# Valores por defecto
 init_key('uf_manual', 39755.0)
 init_key('fuel_price', 774.0)
 init_key('sales_price', 11500.0)
@@ -140,7 +173,7 @@ init_key('h_hours', 10.0)
 init_key('f_days', 28)
 init_key('f_hours', 10.0)
 
-# DataFrames
+# DataFrames Iniciales
 init_key('df_harvester', pd.DataFrame([
     {"Cat": "Fijos", "Ítem": "Arriendo Base", "Tipo": "$/Mes", "Frec": 1, "Valor": 10900000},
     {"Cat": "Fijos", "Ítem": "Operador T1", "Tipo": "$/Mes", "Frec": 1, "Valor": 1923721},
@@ -176,36 +209,7 @@ init_key('df_flota', pd.DataFrame([
     {"Ítem": "Gastos Adm. Central", "Monto": 500000},
 ]))
 
-# --- 4. CÁLCULOS CENTRALIZADOS ---
-def calculate_system_costs(h_df, f_df, rrhh_df, flota_df, days_h, hrs_h, days_f, hrs_f, uf, diesel):
-    total_h = 0
-    total_h_hrs = days_h * hrs_h
-    for _, row in h_df.iterrows():
-        val = row['Valor'] or 0
-        tipo = row['Tipo']
-        cost = 0
-        if tipo == '$/Mes': cost = val
-        elif tipo == 'UF/Mes': cost = val * uf
-        elif tipo == 'Litros/Día': cost = val * days_h * diesel
-        elif tipo == '$/Ev': 
-            frec = row.get('Frec', 1)
-            if frec > 0 and total_h_hrs > 0: cost = (val / frec) * total_h_hrs
-        total_h += cost
-
-    total_f = 0
-    total_f_hrs = days_f * hrs_f
-    for _, row in f_df.iterrows():
-        val = row['Valor'] or 0
-        tipo = row['Unidad']
-        cost = 0
-        if tipo == '$/Mes': cost = val
-        elif tipo == 'Litros/Día': cost = val * days_f * diesel
-        total_f += cost
-
-    total_indirect = rrhh_df['Costo Empresa'].sum() + flota_df['Monto'].sum()
-    return total_h, total_f, total_indirect, total_h_hrs, total_f_hrs
-
-# --- 5. INTERFAZ SIDEBAR ---
+# --- 4. INTERFAZ SIDEBAR ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823538.png", width=50)
     st.title("Configuración")
@@ -244,7 +248,7 @@ with st.sidebar:
         save_config()
         st.toast("Configuración guardada")
 
-# --- 6. CÁLCULOS BASE ---
+# --- 5. CÁLCULOS BASE ---
 tot_h_dir, tot_f_dir, tot_ind, hrs_h, hrs_f = calculate_system_costs(
     st.session_state['df_harvester'], st.session_state['df_forwarder'], 
     st.session_state['df_rrhh'], st.session_state['df_flota'],
@@ -260,7 +264,7 @@ final_f_mes = tot_f_dir + ind_f
 cost_mensual_sistema = final_h_mes + final_f_mes
 cost_hr_sys = (final_h_mes / hrs_h) + (final_f_mes / hrs_f) if hrs_h > 0 else 0
 
-# --- TABS ---
+# --- 6. TABS ---
 st.title("🌲 Sistema de Costos Forestales")
 tab_dash, tab_h, tab_f, tab_ind, tab_sim = st.tabs(["📊 Cierre Mensual", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos", "📈 Matriz & Tarifas"])
 
@@ -317,7 +321,7 @@ with tab_ind:
     with c2: st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], use_container_width=True, num_rows="dynamic", column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
     save_config()
 
-# --- TAB SIMULACIÓN: ANÁLISIS DE RANGO ---
+# --- TAB SIMULACIÓN: ANÁLISIS DE RANGO Y TARIFAS ---
 with tab_sim:
     st.header("🎯 Análisis de Tarifas y Márgenes")
     st.info("Utilice los deslizadores para simular un margen personalizado, o vea el análisis automático de 30-35% abajo.")
