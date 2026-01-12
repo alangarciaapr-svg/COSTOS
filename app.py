@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go  # <--- Esta es la librería que faltaba o daba error
 import requests
 import json
 import os
@@ -38,6 +39,10 @@ st.markdown("""
         font-weight: 800;
         color: #1f2937;
     }
+    .metric-sub {
+        font-size: 12px;
+        color: #9ca3af;
+    }
     .income-box {
         background-color: #f0fdf4;
         padding: 12px;
@@ -53,7 +58,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_curves_v6.json'
+CONFIG_FILE = 'forest_config_pro_final.json'
 
 # --- 2. GESTIÓN DE PERSISTENCIA ---
 def load_config():
