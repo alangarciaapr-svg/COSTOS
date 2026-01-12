@@ -41,10 +41,14 @@ st.markdown("""
         font-weight: bold;
         color: #15803d;
     }
+    .stDataEditor {
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_dynamic_v20.json'
+CONFIG_FILE = 'forest_config_v21_fixed.json'
 
 # --- 2. PERSISTENCIA ---
 class NumpyEncoder(json.JSONEncoder):
@@ -79,14 +83,14 @@ EXPECTED_KEYS = [
     "use_auto_uf", "uf_manual", "sales_price_mr", "conversion_factor", "h_rev_pct",
     "h_days_month", "h_hours_day", "f_days_month", "f_hours_day",
     "total_cost_harvester", "total_cost_forwarder",
-    "sim_m3_h", "sim_m3_f", "df_indirect_simple", "alloc_method", "h_share_pct_manual"
+    "sim_m3_h", "sim_m3_f", "df_indirect_simple_v2", "alloc_method", "h_share_pct_manual"
 ]
 
 if 'config_loaded' not in st.session_state:
     saved_config = load_config()
     for key in EXPECTED_KEYS:
         if key in saved_config:
-            if key == "df_indirect_simple":
+            if key == "df_indirect_simple_v2":
                 st.session_state[key] = pd.DataFrame(saved_config[key])
             else:
                 st.session_state[key] = saved_config[key]
@@ -163,24 +167,69 @@ with st.expander("📝 1. Configuración de Jornada y Costos Mensuales", expande
         st.caption(f"Divisor: {f_days}d x {f_hours}h = **{f_total_hours} hrs/mes**")
         st.info(f"Valor Hora Directo: **${fmt(f_cost_hr_direct)}**")
 
-# --- INDIRECTOS ---
-key_ind = "df_indirect_simple"
+# --- INDIRECTOS (TABLA CON CORRECCIÓN DE ERROR) ---
+st.markdown("---")
+st.subheader("🏢 Costos Indirectos")
+
+key_ind = "df_indirect_simple_v2" # Cambiamos nombre key para forzar reset limpio
+
+# Estructura por defecto
+default_ind = pd.DataFrame([
+    {"Ítem": "Camionetas (Arr + Diesel)", "Monto ($)": 1500000},
+    {"Ítem": "Personal / Administración", "Monto ($)": 2000000},
+    {"Ítem": "Instalaciones / Varios", "Monto ($)": 1000000},
+])
+
 if key_ind not in st.session_state:
-    st.session_state[key_ind] = pd.DataFrame([{"Concepto": "Gastos Generales Faena", "Monto ($)": 4500000}])
+    st.session_state[key_ind] = default_ind
 
-# Cálculo rápido de indirectos oculto para no saturar, pero editable si se quiere
-total_shared = st.session_state[key_ind]["Monto ($)"].sum()
+# VALIDACIÓN DE SEGURIDAD (FIX KEYERROR)
+# Si por alguna razón carga datos viejos sin la columna correcta, reseteamos
+if "Monto ($)" not in st.session_state[key_ind].columns:
+    st.session_state[key_ind] = default_ind
 
-# Asignación simple (50/50 o prop)
-alloc_method = st.session_state.get("alloc_method", "Proporcional")
+# Editor
+edited_ind = st.data_editor(
+    st.session_state[key_ind],
+    num_rows="dynamic",
+    use_container_width=True,
+    column_config={
+        "Monto ($)": st.column_config.NumberColumn(format="$%d")
+    },
+    key="editor_indirect_v2"
+)
+
+# Guardar cambios
+if not edited_ind.equals(st.session_state[key_ind]):
+    st.session_state[key_ind] = edited_ind
+    save_config()
+
+# Cálculo Total Indirecto
+total_shared = edited_ind["Monto ($)"].sum()
+st.success(f"**Total Indirectos: ${fmt(total_shared)} /Mes**")
+
+# Asignación
+c_alloc1, c_alloc2 = st.columns(2)
+with c_alloc1:
+    alloc_method = st.radio("Método Distribución", ["Proporcional a Horas", "Manual"], index=0, horizontal=True, key="alloc_method", on_change=save_config)
+
+h_share = 0
+f_share = 0
+
 if alloc_method == "Manual":
-    h_share = total_shared * (st.session_state.get("h_share_pct_manual", 60)/100)
+    with c_alloc2:
+        h_pct = st.slider("% Asignado a Harvester", 0, 100, 60, key="h_share_pct_manual", on_change=save_config)
+    h_share = total_shared * (h_pct/100)
 else:
     tt = h_total_hours + f_total_hours
-    h_share = total_shared * (h_total_hours/tt) if tt else 0
+    if tt > 0:
+        h_share = total_shared * (h_total_hours/tt)
+    else:
+        h_share = 0
+
 f_share = total_shared - h_share
 
-# Costos Finales Hora
+# --- COSTOS FINALES ---
 final_h_hr = (h_total_month + h_share) / h_total_hours if h_total_hours else 0
 final_f_hr = (f_total_month + f_share) / f_total_hours if f_total_hours else 0
 sys_hr = final_h_hr + final_f_hr
