@@ -8,7 +8,7 @@ import json
 import os
 from datetime import datetime
 
-# --- 1. CONFIGURACIÓN INICIAL Y ESTILO ---
+# --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
     page_title="ForestCost Analytics",
     page_icon="🌲",
@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Profesional
+# Estilos CSS
 st.markdown("""
 <style>
     .metric-card {
@@ -32,33 +32,30 @@ st.markdown("""
         color: #6b7280;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
     }
     .metric-value {
-        font-size: 28px;
+        font-size: 24px;
         font-weight: 700;
         color: #111827;
     }
     .metric-sub {
-        font-size: 13px;
+        font-size: 12px;
         color: #374151;
-        margin-top: 4px;
     }
-    .big-input label {
-        font-weight: bold;
-        font-size: 1.1rem;
-    }
-    .highlight-table {
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    .fuel-card {
+        background-color: #fff3e0;
+        padding: 10px;
+        border-radius: 5px;
+        border: 1px solid #ffe0b2;
+        margin-top: 10px;
+        margin-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_final.json'
+CONFIG_FILE = 'forest_config_fuel_v3.json'
 
-# --- 2. GESTIÓN DE PERSISTENCIA (AUTOGUARDADO) ---
+# --- 2. GESTIÓN DE PERSISTENCIA ---
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -78,14 +75,14 @@ EXPECTED_KEYS = [
     "conversion_factor", "sales_price_mr", "h_rev_pct",
     "h_days_month", "h_hours_day", "f_days_month", "f_hours_day",
     # Harvester
-    "rent_total_Harvester", "fuel_liters_total_Harvester", "salary_total_Harvester", 
+    "rent_total_Harvester", "fuel_l_hr_Harvester", "salary_total_Harvester", 
     "maint_total_Harvester", "consumables_total_Harvester", "others_total_Harvester",
     # Forwarder
-    "rent_total_Forwarder", "fuel_liters_total_Forwarder", "salary_total_Forwarder", 
+    "rent_total_Forwarder", "fuel_l_hr_Forwarder", "salary_total_Forwarder", 
     "maint_total_Forwarder", "consumables_total_Forwarder", "others_total_Forwarder",
     # Shared
-    "pickup_rent_uf", "pickup_fuel", "support_staff", 
-    "facilities", "pension", "others_shared", "alloc_method", "h_share_pct_manual"
+    "pickup_rent_uf", "pickup_fuel_l_hr", "pickup_hours_day", "pickup_days_month",
+    "support_staff", "facilities", "pension", "others_shared", "alloc_method", "h_share_pct_manual"
 ]
 
 if 'config_loaded' not in st.session_state:
@@ -139,30 +136,25 @@ with st.sidebar:
     fuel_price = st.number_input("Precio Petróleo ($/L)", value=774, step=10, key="fuel_price", on_change=save_config)
 
     st.markdown("### 2. Comercial")
-    conversion_factor = st.number_input("Factor (M3 / F = MR)", value=0.65, step=0.01, format="%.2f", key="conversion_factor", help="Ej: 1 M3 Sólido / 0.65 = 1.54 MR", on_change=save_config)
+    conversion_factor = st.number_input("Factor (M3 / F = MR)", value=0.65, step=0.01, format="%.2f", key="conversion_factor", on_change=save_config)
     sales_price_mr = st.number_input("Precio Venta ($/MR)", value=4500, step=100, key="sales_price_mr", on_change=save_config)
 
-    st.markdown("Distr. Ingresos (Harvester/Fwd)")
-    h_rev_pct = st.slider("", 0, 100, 70, key="h_rev_pct", on_change=save_config)
-    st.caption(f"Harvester: {h_rev_pct}% | Forwarder: {100-h_rev_pct}%")
-    
+    st.markdown("Distr. Ingresos")
+    h_rev_pct = st.slider("% Harvester", 0, 100, 70, key="h_rev_pct", on_change=save_config)
     h_price_mr = sales_price_mr * (h_rev_pct / 100)
     f_price_mr = sales_price_mr * ((100 - h_rev_pct) / 100)
 
-# --- 5. CUERPO PRINCIPAL ---
+# --- 5. APP PRINCIPAL ---
 
 st.title("🌲 ForestCost Analytics")
 st.markdown("**Sistema Profesional de Costeo de Maquinaria**")
 
-tab_inputs, tab_dashboard, tab_details = st.tabs(["📝 Entrada de Datos y Desglose", "📊 Dashboard Ejecutivo", "📉 Análisis Sensibilidad"])
+tab_inputs, tab_dashboard, tab_details = st.tabs(["📝 Entrada de Datos", "📊 Dashboard", "📉 Sensibilidad"])
 
-# ==========================================
-# TAB 1: ENTRADA DE DATOS
-# ==========================================
 with tab_inputs:
     
-    # --- A. JORNADA ---
-    with st.expander("📅 Configuración de Jornada Laboral", expanded=True):
+    # A. JORNADA
+    with st.expander("📅 1. Jornada Operacional (Días y Horas)", expanded=True):
         col_j1, col_j2 = st.columns(2)
         with col_j1:
             st.markdown("#### 🚜 Harvester")
@@ -180,111 +172,112 @@ with tab_inputs:
             f_total_hours = f_days * f_hours_day
             c6.metric("Horas Mensuales", fmt(f_total_hours))
 
-    st.markdown("### 💰 Ingreso de Costos y Desglose")
+    st.divider()
+    st.markdown("### 🚜 2. Costos Maquinaria")
 
     col_h_input, col_f_input = st.columns(2)
 
-    # --- FUNCIÓN DE RENDERIZADO DE INPUTS ---
-    def render_machine_section(prefix, hours_month, fuel_p, col_obj):
+    def render_machine_section(prefix, hours_month, days_month, hours_day, fuel_p, col_obj):
         with col_obj:
-            st.markdown(f"#### {prefix}")
-            st.caption(f"Horas Base: {fmt(hours_month)}")
-            
-            # Contenedor con borde
             with st.container(border=True):
+                st.subheader(f"{prefix}")
+                
                 # Defaults
                 def_rent = 10900000 if prefix=="Harvester" else 8000000
                 def_sal = 3800000 if prefix=="Harvester" else 1900000
-                def_liters = 5600.0 if prefix=="Harvester" else 3000.0
+                def_l_hr = 20.0 if prefix=="Harvester" else 15.0
                 def_maint = 1500000 if prefix=="Harvester" else 900000
                 def_consum = 410000 if prefix=="Harvester" else 200000
                 
-                # Inputs
-                rent = st.number_input(f"Arriendo Total ($)", value=def_rent, step=100000, key=f"rent_total_{prefix}", on_change=save_config)
-                sal = st.number_input(f"Sueldos Total ($)", value=def_sal, step=100000, key=f"salary_total_{prefix}", on_change=save_config)
+                # --- COMBUSTIBLE (NUEVO: L/H) ---
+                st.markdown("##### ⛽ Combustible")
+                col_f1, col_f2 = st.columns([1, 2])
+                l_hr = col_f1.number_input(f"L/Hr {prefix}", value=def_l_hr, step=1.0, key=f"fuel_l_hr_{prefix}", on_change=save_config)
                 
-                # Petróleo especial
-                col_pet1, col_pet2 = st.columns([1.5, 1])
-                liters = col_pet1.number_input(f"Petróleo (Litros)", value=def_liters, step=100.0, key=f"fuel_liters_total_{prefix}", on_change=save_config)
-                fuel_cost = liters * fuel_p
-                col_pet2.metric("Costo Petróleo", f"${fmt(fuel_cost/1000)}k", f"{fuel_p} $/L")
+                # Cálculos Combustible
+                cost_fuel_hr = l_hr * fuel_p
+                cost_fuel_day = cost_fuel_hr * hours_day
+                cost_fuel_month = cost_fuel_day * days_month
+                
+                col_f2.info(f"**${fmt(cost_fuel_hr)} /hr** | ${fmt(cost_fuel_day)} /día | ${fmt(cost_fuel_month)} /mes")
 
-                maint = st.number_input(f"Mantención Total ($)", value=def_maint, step=100000, key=f"maint_total_{prefix}", on_change=save_config)
-                consum = st.number_input(f"Consumibles Total ($)", value=def_consum, step=50000, key=f"consumables_total_{prefix}", on_change=save_config)
-                others = st.number_input(f"Otros ($)", value=0, step=10000, key=f"others_total_{prefix}", on_change=save_config)
+                # --- OTROS COSTOS (TOTALES) ---
+                st.markdown("##### ⚙️ Otros Costos (Total Mensual)")
+                rent = st.number_input(f"Arriendo Total ($) {prefix}", value=def_rent, step=100000, key=f"rent_total_{prefix}", on_change=save_config)
+                sal = st.number_input(f"Sueldos Total ($) {prefix}", value=def_sal, step=100000, key=f"salary_total_{prefix}", on_change=save_config)
+                maint = st.number_input(f"Mantención Total ($) {prefix}", value=def_maint, step=100000, key=f"maint_total_{prefix}", on_change=save_config)
+                consum = st.number_input(f"Consumibles Total ($) {prefix}", value=def_consum, step=50000, key=f"consumables_total_{prefix}", on_change=save_config)
+                others = st.number_input(f"Otros ($) {prefix}", value=0, step=10000, key=f"others_total_{prefix}", on_change=save_config)
 
-                # Cálculo del Desglose
-                items = [
-                    ("Arriendo", rent),
-                    ("Sueldos", sal),
-                    ("Combustible", fuel_cost),
-                    ("Mantención", maint),
-                    ("Consumibles", consum),
-                    ("Otros", others)
-                ]
-                
-                total_month = sum([x[1] for x in items])
-                
-                # Crear DataFrame para visualización limpia
-                df_breakdown = pd.DataFrame(items, columns=["Ítem", "Costo Mensual"])
-                df_breakdown["Costo Hora"] = df_breakdown["Costo Mensual"] / hours_month if hours_month > 0 else 0
-                
-                # Formato
-                st.markdown("---")
-                st.markdown("**📋 Desglose Unitario:**")
-                st.dataframe(
-                    df_breakdown,
-                    column_config={
-                        "Ítem": "Concepto",
-                        "Costo Mensual": st.column_config.NumberColumn("Total Mes ($)", format="$%d"),
-                        "Costo Hora": st.column_config.NumberColumn("Valor Hora ($)", format="$%d")
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-                
                 # Totalizador
+                total_month = rent + sal + cost_fuel_month + maint + consum + others
                 tot_hr = total_month / hours_month if hours_month > 0 else 0
-                st.info(f"**TOTAL {prefix}:** ${fmt(total_month)} /mes  ➝  **${fmt(tot_hr)} /hora**")
                 
-                return {"total_month": total_month, "hours_month": hours_month, "df": df_breakdown}
+                st.markdown("---")
+                st.markdown(f"**TOTAL {prefix}:** :green[${fmt(tot_hr)} /hr]")
+                st.caption(f"Total Mes: ${fmt(total_month)}")
+                
+                return {"total_month": total_month, "hours_month": hours_month}
 
-    h_data = render_machine_section("Harvester", h_total_hours, fuel_price, col_h_input)
-    f_data = render_machine_section("Forwarder", f_total_hours, fuel_price, col_f_input)
+    h_data = render_machine_section("Harvester", h_total_hours, h_days, h_hours_day, fuel_price, col_h_input)
+    f_data = render_machine_section("Forwarder", f_total_hours, f_days, f_hours_day, fuel_price, col_f_input)
 
+    st.divider()
+    
     # --- COSTOS COMPARTIDOS ---
-    st.markdown("### 🏢 Costos Indirectos (Faena)")
-    with st.expander("Ver Costos Compartidos y Asignación", expanded=False):
+    st.markdown("### 🏢 3. Costos Indirectos y Camionetas")
+    with st.expander("Ver Detalle Faena", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("**Totales Faena**")
-            p_rent_uf = st.number_input("Arr. Camionetas (UF)", value=38.0, step=0.5, key="pickup_rent_uf", on_change=save_config)
+            st.markdown("##### 🛻 Camionetas (Consumo L/h)")
+            
+            col_p1, col_p2 = st.columns(2)
+            # Input L/h camionetas
+            pickup_l_hr = col_p1.number_input("L/Hr Camioneta", value=1.5, step=0.1, key="pickup_fuel_l_hr", on_change=save_config)
+            pickup_hrs_day = col_p2.number_input("Hrs Uso/Día", value=4.0, step=0.5, key="pickup_hours_day", on_change=save_config)
+            pickup_days = st.number_input("Días Uso/Mes", value=30, key="pickup_days_month", on_change=save_config)
+
+            # Cálculo Petróleo Camioneta
+            p_fuel_cost_hr = pickup_l_hr * fuel_price
+            p_fuel_cost_day = p_fuel_cost_hr * pickup_hrs_day
+            p_fuel_cost_month = p_fuel_cost_day * pickup_days
+            
+            st.markdown(f"""
+            <div class="fuel-card">
+                <b>⛽ Gasto Diesel Camionetas:</b><br>
+                • Hora: ${fmt(p_fuel_cost_hr)}<br>
+                • Día: ${fmt(p_fuel_cost_day)}<br>
+                • Mes: <b>${fmt(p_fuel_cost_month)}</b>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            p_rent_uf = st.number_input("Arriendo Camionetas (UF/Mes)", value=38.0, step=0.5, key="pickup_rent_uf", on_change=save_config)
             p_rent_clp = p_rent_uf * current_uf
-            p_fuel = st.number_input("Comb. Camionetas ($)", value=535104, step=50000, key="pickup_fuel", on_change=save_config)
-            staff = st.number_input("Personal Apoyo ($)", value=2164000, step=100000, key="support_staff", on_change=save_config)
-            fac = st.number_input("Instalaciones/Varios ($)", value=2550000, step=100000, key="facilities", on_change=save_config) # Sumado para simplificar input
             
-            total_shared = p_rent_clp + p_fuel + staff + fac
-            st.metric("Total Costos Fijos", f"${fmt(total_shared)}")
-        
         with c2:
-            st.markdown("**Asignación a Maquinaria**")
-            opts = ["Porcentaje Manual", "Proporcional a Horas"]
-            idx = opts.index(st.session_state.get("alloc_method", "Porcentaje Manual")) if st.session_state.get("alloc_method") in opts else 0
-            alloc = st.radio("Método", opts, index=idx, key="alloc_method", on_change=save_config)
+            st.markdown("##### 🛠️ Otros Gastos Faena")
+            staff = st.number_input("Personal Apoyo ($)", value=2164000, step=100000, key="support_staff", on_change=save_config)
+            fac = st.number_input("Instalaciones ($)", value=560000, step=50000, key="facilities", on_change=save_config)
+            pen = st.number_input("Pensión/Alojamiento ($)", value=1890000, step=50000, key="pension", on_change=save_config)
+            oth = st.number_input("Otros Faena ($)", value=100000, step=10000, key="others_shared", on_change=save_config)
             
-            if alloc == "Porcentaje Manual":
-                h_pct = st.slider("% para Harvester", 0, 100, 60, key="h_share_pct_manual", on_change=save_config) / 100.0
-                f_pct = 1.0 - h_pct
-            else:
-                tot_h = h_total_hours + f_total_hours
-                h_pct = h_total_hours / tot_h if tot_h > 0 else 0.5
-                f_pct = f_total_hours / tot_h if tot_h > 0 else 0.5
-            
-            # Tabla de asignación
-            st.markdown("**Impacto por Máquina:**")
-            st.write(f"Harvester ({h_pct*100:.0f}%): **${fmt(total_shared*h_pct)}**")
-            st.write(f"Forwarder ({f_pct*100:.0f}%): **${fmt(total_shared*f_pct)}**")
+            total_shared = p_rent_clp + p_fuel_cost_month + staff + fac + pen + oth
+            st.success(f"**Total Costos Indirectos: ${fmt(total_shared)}**")
+        
+        # Asignación
+        st.markdown("---")
+        st.caption("Distribución de Costos Indirectos")
+        opts = ["Porcentaje Manual", "Proporcional a Horas"]
+        idx = opts.index(st.session_state.get("alloc_method", "Porcentaje Manual")) if st.session_state.get("alloc_method") in opts else 0
+        alloc = st.radio("Método", opts, index=idx, key="alloc_method", horizontal=True, on_change=save_config)
+        
+        if alloc == "Porcentaje Manual":
+            h_pct = st.slider("% Harvester", 0, 100, 60, key="h_share_pct_manual", on_change=save_config) / 100.0
+            f_pct = 1.0 - h_pct
+        else:
+            tot_h = h_total_hours + f_total_hours
+            h_pct = h_total_hours / tot_h if tot_h > 0 else 0.5
+            f_pct = f_total_hours / tot_h if tot_h > 0 else 0.5
 
 # ==========================================
 # CÁLCULOS CENTRALIZADOS
@@ -319,64 +312,44 @@ for m3 in prod_m3:
     })
 df_sens = pd.DataFrame(rows)
 
-# ==========================================
-# TAB 2: DASHBOARD EJECUTIVO
-# ==========================================
 with tab_dashboard:
-    st.markdown("### 📊 Tablero de Control")
+    st.markdown("### 📊 KPIs de Proyecto")
     
-    # KPIs Superiores
     k1, k2, k3, k4 = st.columns(4)
-    with k1: card("Costo Hora Harvester", f"${fmt(h_cost_hr)}", "Directo + Indirecto")
-    with k2: card("Costo Hora Forwarder", f"${fmt(f_cost_hr)}", "Directo + Indirecto")
-    with k3: card("Costo Hora Sistema", f"${fmt(sys_cost_hr)}", "Total Operacional")
-    with k4: card("Costo Total Faena", f"${fmt((h_data['total_month']+f_data['total_month']+total_shared)/1e6)} M", "Gasto Mensual")
+    with k1: card("Costo Hora Harvester", f"${fmt(h_cost_hr)}", "Total c/ Indirectos")
+    with k2: card("Costo Hora Forwarder", f"${fmt(f_cost_hr)}", "Total c/ Indirectos")
+    with k3: card("Costo Hora Sistema", f"${fmt(sys_cost_hr)}", "H + F")
+    with k4: card("Costo Mensual Faena", f"${fmt(h_data['total_month']+f_data['total_month']+total_shared)}", "Gasto Total")
 
     st.markdown("---")
 
     g1, g2 = st.columns([2, 1])
     with g1:
-        st.subheader("Curva de Rentabilidad")
-        fig = px.line(df_sens, x="Prod MR", y="Margen %", markers=True, 
-                      title="Margen (%) vs Productividad (MR/hr)", color_discrete_sequence=["#2e7d32"])
+        st.subheader("Rentabilidad vs Productividad")
+        fig = px.line(df_sens, x="Prod MR", y="Margen %", markers=True, title="Margen (%) según MR/hr", color_discrete_sequence=["#2e7d32"])
         fig.add_hline(y=0, line_dash="dot", line_color="red")
-        fig.update_layout(height=350, xaxis_title="Metros Ruma por Hora", yaxis_tickformat=".0%")
+        fig.update_layout(xaxis_title="MR / Hora", yaxis_tickformat=".0%")
         st.plotly_chart(fig, use_container_width=True)
     
     with g2:
-        st.subheader("Estructura de Costos")
-        # Donut Chart
+        st.subheader("Costos")
+        # Pie chart con desglose de Combustible vs Resto
+        # Calculamos totales globales
+        total_fuel_h = h_data["total_month"] - (st.session_state.get("rent_total_Harvester",0) + st.session_state.get("salary_total_Harvester",0) + st.session_state.get("maint_total_Harvester",0) + st.session_state.get("consumables_total_Harvester",0)) # Aprox logic
+        # Mejor usar los datos directos calculados si pudiéramos pasarlos, pero aquí haremos un pie simple H vs F vs Shared
         labels = ["Harvester", "Forwarder", "Indirectos"]
-        # Nota: En el costo hora ya están los indirectos, para el gráfico los separamos visualmente
-        # Costos puros directos vs indirecto total
-        v_h_dir = h_data["total_month"]
-        v_f_dir = f_data["total_month"]
-        v_ind = total_shared
-        
-        fig_pie = go.Figure(data=[go.Pie(labels=labels, values=[v_h_dir, v_f_dir, v_ind], hole=.4)])
-        fig_pie.update_layout(height=350, showlegend=True, margin=dict(t=0,b=0,l=0,r=0))
+        vals = [h_data["total_month"], f_data["total_month"], total_shared]
+        fig_pie = go.Figure(data=[go.Pie(labels=labels, values=vals, hole=.4)])
         st.plotly_chart(fig_pie, use_container_width=True)
 
-# ==========================================
-# TAB 3: DETALLE
-# ==========================================
 with tab_details:
-    st.subheader("Simulación de Escenarios")
-    
-    st.dataframe(
-        df_sens,
-        column_config={
-            "Prod M3": st.column_config.NumberColumn("M3/hr", format="%d"),
-            "Prod MR": st.column_config.NumberColumn("MR/hr", format="%.1f"),
-            "Costo H": st.column_config.NumberColumn("Costo H ($/MR)", format="$%d"),
-            "Costo F": st.column_config.NumberColumn("Costo F ($/MR)", format="$%d"),
-            "Costo Total": st.column_config.NumberColumn("Costo Sys ($/MR)", format="$%d"),
-            "Utilidad": st.column_config.NumberColumn("Utilidad ($/MR)", format="$%d"),
-            "Margen %": st.column_config.ProgressColumn("Margen", format="%.1f%%", min_value=-0.5, max_value=0.5),
-        },
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(df_sens, column_config={
+        "Prod M3": st.column_config.NumberColumn("M3/hr"),
+        "Prod MR": st.column_config.NumberColumn("MR/hr", format="%.1f"),
+        "Costo Total": st.column_config.NumberColumn("Costo/MR", format="$%d"),
+        "Utilidad": st.column_config.NumberColumn("Utilidad/MR", format="$%d"),
+        "Margen %": st.column_config.ProgressColumn("Margen", format="%.1f%%", min_value=-0.5, max_value=0.5)
+    }, hide_index=True, use_container_width=True)
     
     csv = df_sens.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Descargar Datos (CSV)", csv, "reporte_forestal.csv", "text/csv")
+    st.download_button("Descargar CSV", csv, "reporte.csv", "text/csv")
