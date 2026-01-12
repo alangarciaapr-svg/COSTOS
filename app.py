@@ -47,20 +47,13 @@ st.markdown("""
         margin-bottom: 15px;
         color: #166534;
     }
-    .result-card {
-        padding: 15px;
-        border-radius: 10px;
-        text-align: center;
-        border: 1px solid #e5e7eb;
-        background-color: #f9fafb;
-    }
     .stNumberInput label { font-weight: 600; color: #374151; }
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_table_edit_v10.json'
+CONFIG_FILE = 'forest_config_v11_fixed.json'
 
-# --- 2. GESTIÓN DE PERSISTENCIA ---
+# --- 2. GESTIÓN DE PERSISTENCIA (CORREGIDA) ---
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -71,8 +64,15 @@ def load_config():
     return {}
 
 def save_config():
-    # Nota: Para las tablas editables, guardamos el estado de session_state manual
-    config_data = {k: v for k, v in st.session_state.items() if k in EXPECTED_KEYS}
+    # CORRECCIÓN: Convertir DataFrames a diccionarios antes de guardar
+    config_data = {}
+    for k, v in st.session_state.items():
+        if k in EXPECTED_KEYS:
+            if isinstance(v, pd.DataFrame):
+                config_data[k] = v.to_dict('records') # Serializar tabla
+            else:
+                config_data[k] = v
+                
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config_data, f)
 
@@ -85,15 +85,21 @@ EXPECTED_KEYS = [
     "support_staff", "facilities", "pension", "others_shared", "alloc_method", "h_share_pct_manual",
     # Simulador
     "sim_m3_h", "sim_m3_f",
-    # Dataframes (Listas de valores)
+    # Dataframes (Tablas)
     "df_harvester_values", "df_forwarder_values"
 ]
 
+# Inicialización segura
 if 'config_loaded' not in st.session_state:
     saved_config = load_config()
     for key in EXPECTED_KEYS:
         if key in saved_config:
-            st.session_state[key] = saved_config[key]
+            val = saved_config[key]
+            # Si es una de las tablas, convertir de lista a DataFrame
+            if key in ["df_harvester_values", "df_forwarder_values"]:
+                st.session_state[key] = pd.DataFrame(val)
+            else:
+                st.session_state[key] = val
     st.session_state['config_loaded'] = True
 
 # --- 3. UTILIDADES ---
@@ -232,10 +238,9 @@ with tab_inputs:
             
             # Actualizar estado para persistencia
             st.session_state[key_df] = edited_df
-            save_config() # Guardar cambios en el JSON
+            save_config() # Guardar cambios
 
-            # --- PROCESAMIENTO DE CÁLCULOS DESDE LA TABLA ---
-            # Extraemos los valores por índice (asumiendo que el orden no cambia) o por Ítem
+            # --- PROCESAMIENTO ---
             def get_val(item_name):
                 row = edited_df[edited_df["Ítem"] == item_name]
                 return row.iloc[0]["Valor"] if not row.empty else 0
@@ -251,7 +256,7 @@ with tab_inputs:
             c_lub = get_val("Lubricantes/Filtros")
             others = get_val("Varios")
 
-            # Cálculos derivados
+            # Cálculos
             fuel_cost_month = l_hr * hours_month * fuel_p
             total_maint = m_prev + m_corr + m_tires
             total_consum = c_cut + c_hyd + c_lub
@@ -261,8 +266,9 @@ with tab_inputs:
             
             # Resumen Visual
             st.info(f"**Total {prefix}: ${fmt(total_hr)} /hora**")
-            with st.expander(f"Ver Resumen Calculado {prefix}"):
-                st.write(f"Combustible ({l_hr} L/h * ${fuel_p}): **${fmt(fuel_cost_month)}**")
+            with st.expander(f"Ver Resumen {prefix}", expanded=False):
+                st.write(f"Combustible ({l_hr} L/h): **${fmt(fuel_cost_month)}**")
+                st.write(f"Mantención Total: **${fmt(total_maint)}**")
                 st.write(f"Total Mes: **${fmt(total_month)}**")
 
             return total_month, total_hr
@@ -453,11 +459,11 @@ with tab_details:
     c_r1, c_r2, c_r3 = st.columns(3)
     
     with c_r1: 
-        result_card("🚜 HARVESTER", mr_h, h_income, sim_c_h, sim_m_h, sim_p_h, bottleneck=(mr_h < mr_f))
+        result_card("HARVESTER", mr_h, h_income, sim_c_h, sim_m_h, sim_p_h, bottleneck=(mr_h < mr_f))
     with c_r2: 
-        result_card("🚜 FORWARDER", mr_f, f_income, sim_c_f, sim_m_f, sim_p_f, bottleneck=(mr_f < mr_h))
+        result_card("FORWARDER", mr_f, f_income, sim_c_f, sim_m_f, sim_p_f, bottleneck=(mr_f < mr_h))
     with c_r3: 
-        result_card("🌲 SISTEMA REAL (Limitado)", mr_sys, sales_price_mr, sim_c_sys, sim_m_sys, sim_p_sys)
+        result_card("SISTEMA REAL", mr_sys, sales_price_mr, sim_c_sys, sim_m_sys, sim_p_sys)
 
     st.divider()
     st.subheader("📉 Tabla de Sensibilidad General")
