@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go  # <--- Esta es la librería que faltaba o daba error
+import plotly.graph_objects as go
 import requests
 import json
 import os
@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ESTILOS CSS
+# ESTILOS CSS PROFESIONALES
 st.markdown("""
 <style>
     .metric-card {
@@ -51,6 +51,18 @@ st.markdown("""
         margin-bottom: 15px;
         color: #166534;
     }
+    .calc-box {
+        background-color: #e3f2fd;
+        border: 1px solid #90caf9;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+    }
+    .calc-result {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #1565c0;
+    }
     .stNumberInput label {
         font-weight: 600;
         color: #374151;
@@ -58,7 +70,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_pro_final.json'
+CONFIG_FILE = 'forest_config_calc_v7.json'
 
 # --- 2. GESTIÓN DE PERSISTENCIA ---
 def load_config():
@@ -315,7 +327,7 @@ for m3 in prod_m3:
     c_h_mr = h_cost_hr / mr if mr > 0 else 0
     c_f_mr = f_cost_hr / mr if mr > 0 else 0
     
-    # Márgenes Individuales y Totales
+    # Márgenes
     m_h = h_income - c_h_mr
     m_f = f_income - c_f_mr
     m_sys = sales_price_mr - (c_h_mr + c_f_mr)
@@ -350,7 +362,6 @@ with tab_dashboard:
     g1, g2 = st.columns([2, 1])
     with g1:
         st.subheader("Curvas de Rentabilidad")
-        # Gráfico Multilínea
         fig = px.line(df_sens, x="Prod MR", y=["Margen Total %", "Margen H %", "Margen F %"], 
                       title="Comparativa de Márgenes (%) vs Productividad",
                       markers=True,
@@ -365,7 +376,6 @@ with tab_dashboard:
     
     with g2:
         st.subheader("Costos Globales")
-        # Grafico Torta
         labels = ["Harvester Directo", "Forwarder Directo", "Indirectos"]
         values = [h_data["total_month"], f_data["total_month"], total_shared]
         fig_pie = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4)])
@@ -376,6 +386,36 @@ with tab_dashboard:
 # TAB 3: SENSIBILIDAD
 # ==========================================
 with tab_details:
+    st.markdown("### 🧮 Calculadora de Rentabilidad Puntual")
+    st.caption("Ingresa un volumen de producción específico para ver el resultado exacto sin buscar en la tabla.")
+    
+    with st.container():
+        st.markdown('<div class="calc-box">', unsafe_allow_html=True)
+        col_calc1, col_calc2, col_calc3 = st.columns(3)
+        
+        with col_calc1:
+            input_m3 = st.number_input("Ingresa Volumen ($m^3$/hr)", value=25.0, step=0.5)
+            calc_mr = input_m3 / conversion_factor if conversion_factor else 0
+            st.markdown(f"**= {calc_mr:.2f} MR/hr**")
+            
+        with col_calc2:
+            calc_cost = sys_cost_hr / calc_mr if calc_mr else 0
+            st.metric("Costo Unitario", f"${fmt(calc_cost)}")
+            
+        with col_calc3:
+            calc_margin = sales_price_mr - calc_cost
+            calc_pct = (calc_margin / sales_price_mr * 100) if sales_price_mr else 0
+            
+            color = "green" if calc_pct > 0 else "red"
+            st.markdown(f"""
+            <div style="text-align:center;">
+                <span style="font-size:14px; color:#555;">Margen Obtenido</span><br>
+                <span class="calc-result" style="color:{color}">{calc_pct:.1f}%</span>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.divider()
     st.subheader("📉 Tabla de Sensibilidad Detallada")
     
     st.dataframe(df_sens, column_config={
