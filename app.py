@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import io
 import requests
 
-# --- 1. CONFIGURACIÓN Y ESTILO ---
+# --- 1. CONFIGURACIÓN Y ESTILO CORPORATIVO ---
 st.set_page_config(
     page_title="Forestal Costing Pro", 
     layout="wide", 
@@ -16,6 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# CSS Profesional
 st.markdown("""
 <style>
     .main {background-color: #f8fafc;}
@@ -49,10 +50,7 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         margin-bottom: 10px;
     }
-    .kpi-header {
-        font-size: 0.9em; font-weight: 700; color: #64748b; text-transform: uppercase;
-        border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-bottom: 10px;
-    }
+    .kpi-title { font-size: 0.9em; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px;}
     .kpi-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.95em; }
     .val-inc { font-weight: 600; color: #0f172a; }
     .val-cost { font-weight: 600; color: #ef4444; }
@@ -64,9 +62,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v15_stable.json'
+CONFIG_FILE = 'forest_config_v16_final_hourly.json'
 
-# --- 2. FUNCIONES GLOBALES (DEFINIDAS AQUÍ PARA EVITAR NAME ERROR) ---
+# --- 2. FUNCIONES GLOBALES ---
 
 def fmt_money(x): 
     """Formatea números como moneda CLP"""
@@ -80,7 +78,7 @@ def calc_price(cost, margin_pct):
     return cost / factor if factor > 0 else 0
 
 def calculate_system_costs(h_df, f_df, rrhh_df, flota_df, days_h, hrs_h, days_f, hrs_f, uf, diesel):
-    # Limpieza de datos
+    # Pre-procesamiento
     h_df = h_df.fillna(0)
     f_df = f_df.fillna(0)
     rrhh_df = rrhh_df.fillna(0)
@@ -258,52 +256,58 @@ final_h_mes = tot_h_dir + ind_h
 final_f_mes = tot_f_dir + ind_f
 cost_mensual_sistema = final_h_mes + final_f_mes
 
-# Horas Operativas del Sistema
+# Horas Operativas del Sistema para prorratear
 hrs_sistema_mes = max(hrs_h, hrs_f) if max(hrs_h, hrs_f) > 0 else 1
 
 # --- 6. INTERFAZ PRINCIPAL ---
 st.title("🌲 Sistema de Costos Forestales Profesional")
 
 tab_dash, tab_h, tab_f, tab_ind, tab_sim = st.tabs([
-    "📊 Dashboard Gerencial", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos", "📈 Tarifas Objetivo"
+    "📊 Dashboard Gerencial", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos", "📈 Simulador de Tarifas"
 ])
 
-# --- TAB 1: DASHBOARD GERENCIAL (REDDISEÑADO) ---
+# --- TAB 1: DASHBOARD GERENCIAL (CORREGIDO PARA m3/HORA) ---
 with tab_dash:
-    st.markdown("### 📊 Resultado Operacional por Escala de Tiempo")
+    st.markdown("### 📊 Resultado Operacional (Basado en Productividad Horaria)")
     
     # 1. Inputs Producción
     c_in1, c_in2, c_in3 = st.columns(3)
     with c_in1:
-        st.markdown("**Producción Mensual (m³ Sólidos)**")
-        prod_h_m3 = st.number_input("Harvester (m³)", value=5000.0, step=100.0)
-        prod_f_m3 = st.number_input("Forwarder (m³)", value=5000.0, step=100.0)
+        st.markdown("**Productividad (m³/Hora)**")
+        prod_h_hr = st.number_input("Harvester (m³/hr)", value=25.0, step=0.5)
+        prod_f_hr = st.number_input("Forwarder (m³/hr)", value=28.0, step=0.5)
     
     with c_in2:
-        st.markdown("**Producción Comercial**")
-        prod_f_mr = prod_f_m3 / st.session_state['conv_factor']
-        st.metric("Total Metro Ruma (MR)", f"{prod_f_mr:,.1f}", f"Factor: {st.session_state['conv_factor']}")
+        st.markdown("**Conversión a MR/Hora**")
+        prod_h_mr_hr = prod_h_hr / st.session_state['conv_factor']
+        prod_f_mr_hr = prod_f_hr / st.session_state['conv_factor']
+        st.metric("Forwarder MR/hr", f"{prod_f_mr_hr:,.1f}", f"Factor: {st.session_state['conv_factor']}")
         
     with c_in3:
         st.markdown("**Venta Estimada**")
-        ingresos_mes = prod_f_mr * st.session_state['sales_price']
-        st.metric("Facturación Mes", fmt_money(ingresos_mes), "Base Cancha (Fwd)")
+        # Ingreso Hora = Producción MR/hr del Forwarder (Venta) * Precio
+        ingresos_hr = prod_f_mr_hr * st.session_state['sales_price']
+        st.metric("Ingreso por Hora", fmt_money(ingresos_hr), "Base Forwarder")
 
     st.divider()
 
-    # 2. CÁLCULOS TEMPORALES (Lógica de Negocio)
-    # Mensual
-    utilidad_mes = ingresos_mes - cost_mensual_sistema
+    # 2. CÁLCULOS TEMPORALES (Extrapolación desde la Hora)
     
-    # Semanal (Mes / 4)
-    ingreso_sem = ingresos_mes / 4
+    # Costos
+    costo_mes = cost_mensual_sistema
+    costo_hr = cost_mensual_sistema / hrs_sistema_mes # Costo promedio hora según capacidad instalada
     costo_sem = cost_mensual_sistema / 4
-    utilidad_sem = utilidad_mes / 4
     
-    # Horario (Mes / Horas Operativas Sistema)
-    ingreso_hr = ingresos_mes / hrs_sistema_mes
-    costo_hr = cost_mensual_sistema / hrs_sistema_mes
-    utilidad_hr = utilidad_mes / hrs_sistema_mes
+    # Ingresos (Proyectados según la productividad horaria ingresada * horas trabajadas configuradas)
+    ingresos_mes = ingresos_hr * hrs_sistema_mes
+    ingreso_sem = ingresos_mes / 4
+    
+    # Utilidad
+    utilidad_hr = ingresos_hr - costo_hr
+    utilidad_sem = ingreso_sem - costo_sem
+    utilidad_mes = ingresos_mes - costo_mes
+    
+    margen_pct = (utilidad_mes / ingresos_mes * 100) if ingresos_mes > 0 else 0
 
     # 3. TARJETAS DE RESULTADOS (Vs)
     col1, col2, col3 = st.columns(3)
@@ -320,9 +324,9 @@ with tab_dash:
         </div>
         """
 
-    with col1: st.markdown(render_kpi_card("⏱️ Por Hora Operativa", ingreso_hr, costo_hr, utilidad_hr), unsafe_allow_html=True)
-    with col2: st.markdown(render_kpi_card("📅 Por Semana", ingreso_sem, costo_sem, utilidad_sem), unsafe_allow_html=True)
-    with col3: st.markdown(render_kpi_card("🗓️ Por Mes", ingresos_mes, cost_mensual_sistema, utilidad_mes), unsafe_allow_html=True)
+    with col1: st.markdown(render_kpi_card("⏱️ Por Hora Operativa", ingresos_hr, costo_hr, utilidad_hr), unsafe_allow_html=True)
+    with col2: st.markdown(render_kpi_card("📅 Por Semana (Promedio)", ingreso_sem, costo_sem, utilidad_sem), unsafe_allow_html=True)
+    with col3: st.markdown(render_kpi_card("🗓️ Proyección Mensual", ingresos_mes, costo_mes, utilidad_mes), unsafe_allow_html=True)
 
     # 4. GRÁFICO COMPARATIVO
     st.write("")
@@ -331,18 +335,16 @@ with tab_dash:
     df_chart = pd.DataFrame({
         "Periodo": ["Hora", "Hora", "Hora", "Semana", "Semana", "Semana", "Mes", "Mes", "Mes"],
         "Concepto": ["Ingreso", "Costo", "Ganancia"] * 3,
-        "Monto": [ingreso_hr, costo_hr, utilidad_hr, ingreso_sem, costo_sem, utilidad_sem, ingresos_mes, cost_mensual_sistema, utilidad_mes]
+        "Monto": [ingresos_hr, costo_hr, utilidad_hr, ingreso_sem, costo_sem, utilidad_sem, ingresos_mes, costo_mes, utilidad_mes]
     })
     
-    # Colores personalizados
     colors = {"Ingreso": "#3b82f6", "Costo": "#ef4444", "Ganancia": "#22c55e"}
     
-    # Facetamos el gráfico para manejar las escalas tan distintas (Hora vs Mes)
     fig = px.bar(df_chart, x="Concepto", y="Monto", color="Concepto", facet_col="Periodo",
                  color_discrete_map=colors, text_auto='.2s', 
                  title="Desempeño Financiero por Escala Temporal")
     
-    fig.update_yaxes(matches=None) # Permitir escalas independientes para que se vea bien la hora y el mes
+    fig.update_yaxes(matches=None) 
     fig.for_each_yaxis(lambda yaxis: yaxis.update(showticklabels=True))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -389,7 +391,7 @@ with tab_ind:
 
 # --- TAB 5: SIMULADOR TARIFAS ---
 with tab_sim:
-    st.header("🎯 Análisis de Tarifas y Márgenes")
+    st.header("🎯 Calculadora de Tarifas y Márgenes")
     
     col_input1, col_input2, col_input3 = st.columns(3)
     with col_input1:
@@ -402,7 +404,7 @@ with tab_sim:
         prod_sim = st.number_input("Prod. Estimada (MR/Hr)", value=22.0, step=0.5)
         save_config()
 
-    # Cálculos de Costo Unitario
+    # Cálculos
     cost_h_hr_real = (tot_h_dir + ind_h) / hrs_h if hrs_h > 0 else 0
     cost_f_hr_real = (tot_f_dir + ind_f) / hrs_f if hrs_f > 0 else 0
     safe_prod = prod_sim if prod_sim > 0 else 1
@@ -411,7 +413,7 @@ with tab_sim:
     cost_unit_f = cost_f_hr_real / safe_prod
     cost_unit_sys = cost_unit_h + cost_unit_f
 
-    # Análisis Rango (30-35)
+    # Análisis Rango
     st.divider()
     st.subheader("📊 Análisis de Rango Objetivo (30% - 35%)")
     
