@@ -1,5 +1,7 @@
 streamlit
 pandas
+numpy
 plotly
-fpdf
+xlsxwriter
+requests
 openpyxl
