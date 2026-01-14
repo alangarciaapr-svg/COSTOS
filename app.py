@@ -9,13 +9,13 @@ import io
 import requests
 from datetime import datetime
 
-# Intentamos importar FPDF, si falla, avisamos
+# Intentamos importar FPDF
 try:
     from fpdf import FPDF
 except ImportError:
     st.error("Librería fpdf no instalada. Por favor agrega 'fpdf' a requirements.txt")
 
-# --- 1. CONFIGURACIÓN Y ESTILO PRO ---
+# --- 1. CONFIGURACIÓN Y ESTILO ---
 st.set_page_config(
     page_title="Forestal Costing Master", 
     layout="wide", 
@@ -27,7 +27,6 @@ st.markdown("""
 <style>
     .main {background-color: #f1f5f9;}
     h1, h2, h3 {color: #0f172a; font-family: 'Segoe UI', sans-serif;}
-    
     div[data-testid="stMetricValue"] { font-size: 1.4rem; font-weight: 700; }
     
     .machine-card {
@@ -38,28 +37,15 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         margin-bottom: 15px;
     }
-    .card-h { border-top-color: #eab308; } 
-    .card-f { border-top-color: #22c55e; } 
-    
-    .card-header {
-        font-size: 1.1em; font-weight: 800; color: #334155;
-        margin-bottom: 15px; display: flex; justify-content: space-between;
-    }
-    
-    .total-row {
-        display: flex; justify-content: space-between; padding-top: 12px;
-        margin-top: 5px; font-weight: 800; font-size: 1.1em; color: #0f172a;
-    }
-    
+    .card-header { font-size: 1.1em; font-weight: 800; color: #334155; display: flex; justify-content: space-between; margin-bottom: 15px; }
     .badge-success { background-color: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
     .badge-danger { background-color: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
-
     thead tr th:first-child {display:none}
     tbody th {display:none}
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v24_pdf_graphs.json'
+CONFIG_FILE = 'forest_config_v25_pro_pdf.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -99,68 +85,165 @@ def calculate_system_costs(h_df, f_df, rrhh_df, flota_df, h_days, h_hours, f_day
     total_indirect = rrhh_df['Costo Empresa'].sum() + flota_df['Monto'].sum()
     return total_h, total_f, total_indirect
 
-# --- CLASE GENERADORA DE PDF ---
-class PDF(FPDF):
+# --- 3. MOTOR PDF PROFESIONAL (NUEVO) ---
+class PDF_Pro(FPDF):
     def header(self):
-        self.set_font('Arial', 'B', 14)
-        self.cell(0, 10, 'SOCIEDAD MADERERA GÁLVEZ Y DI GÉNOVA LDS', 0, 1, 'C')
-        self.set_font('Arial', 'I', 10)
-        self.cell(0, 10, 'Informe de Costos v/s Producción', 0, 1, 'C')
-        self.ln(5)
+        # Fondo del Encabezado
+        self.set_fill_color(30, 41, 59) # Azul Oscuro Slate
+        self.rect(0, 0, 210, 40, 'F')
+        
+        # Título Empresa
+        self.set_font('Arial', 'B', 16)
+        self.set_text_color(255, 255, 255)
+        self.set_xy(10, 10)
+        self.cell(0, 10, 'SOCIEDAD MADERERA GÁLVEZ Y DI GÉNOVA LDS', 0, 1, 'L')
+        
+        # Subtítulo
+        self.set_font('Arial', '', 11)
+        self.set_text_color(203, 213, 225) # Gris claro
+        self.cell(0, 5, 'INFORME DE GESTIÓN: COSTOS V/S PRODUCCIÓN', 0, 1, 'L')
+        
+        # Fecha
+        self.set_xy(150, 15)
+        self.set_font('Arial', 'B', 10)
+        self.cell(50, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
+        self.ln(20)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
-        self.cell(0, 10, f'Pagina {self.page_no()}', 0, 0, 'C')
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 10, f'Pagina {self.page_no()} - Generado por Forestal Costing Master', 0, 0, 'C')
 
-def create_pdf_report(state, kpis):
-    pdf = PDF()
+    def chapter_title(self, label):
+        self.set_font('Arial', 'B', 12)
+        self.set_text_color(30, 41, 59)
+        self.set_fill_color(226, 232, 240) # Gris muy claro
+        self.cell(0, 8, f"  {label}", 0, 1, 'L', 1)
+        self.ln(4)
+
+    def kpi_box(self, label, value, x, y, width, color_header):
+        self.set_xy(x, y)
+        # Borde
+        self.set_draw_color(200, 200, 200)
+        self.rect(x, y, width, 25)
+        
+        # Titulo KPI
+        self.set_fill_color(*color_header) # Desempaquetar tupla RGB
+        self.set_text_color(255, 255, 255)
+        self.set_font('Arial', 'B', 9)
+        self.cell(width, 7, label, 1, 1, 'C', 1)
+        
+        # Valor KPI
+        self.set_xy(x, y + 8)
+        self.set_text_color(30, 41, 59)
+        self.set_font('Arial', 'B', 12)
+        self.cell(width, 17, value, 0, 0, 'C')
+
+    def table_simple(self, header, data, col_widths):
+        # Header
+        self.set_font('Arial', 'B', 9)
+        self.set_fill_color(241, 245, 249)
+        self.set_text_color(30, 41, 59)
+        for i, h in enumerate(header):
+            self.cell(col_widths[i], 7, h, 1, 0, 'C', 1)
+        self.ln()
+        
+        # Data
+        self.set_font('Arial', '', 9)
+        fill = False
+        for row in data:
+            self.set_fill_color(250, 250, 250)
+            for i, datum in enumerate(row):
+                align = 'L' if i == 0 else 'R'
+                self.cell(col_widths[i], 6, str(datum), 1, 0, align, fill)
+            self.ln()
+            fill = not fill # Alternar color
+
+def create_pro_pdf(state, kpis):
+    pdf = PDF_Pro()
     pdf.add_page()
-    pdf.set_font("Arial", size=10)
     
-    # 1. Resumen General
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, f"Resumen Ejecutivo - {datetime.now().strftime('%d/%m/%Y')}", 0, 1)
-    pdf.set_font("Arial", size=10)
+    # 1. KPIs Principales (Cajas de Colores)
+    pdf.chapter_title('RESUMEN EJECUTIVO MENSUAL')
     
-    # KPIs Principales
-    pdf.cell(90, 8, f"Produccion Harvester: {kpis['mr_h']:,.1f} MR", 1)
-    pdf.cell(90, 8, f"Produccion Forwarder: {kpis['mr_f']:,.1f} MR", 1, 1)
+    # Coordenadas
+    start_y = pdf.get_y()
     
-    pdf.cell(90, 8, f"Venta Total Sistema: {fmt_money(kpis['inc_total'])}", 1)
-    pdf.cell(90, 8, f"Costo Total Sistema: {fmt_money(kpis['cost_total'])}", 1, 1)
+    # Venta Total (Azul)
+    pdf.kpi_box("VENTA TOTAL", fmt_money(kpis['inc_total']), 10, start_y, 60, (59, 130, 246))
+    # Costo Total (Rojo)
+    pdf.kpi_box("COSTO TOTAL", fmt_money(kpis['cost_total']), 75, start_y, 60, (239, 68, 68))
+    # Utilidad (Verde)
+    pdf.kpi_box("UTILIDAD NETA", fmt_money(kpis['prof_total']), 140, start_y, 60, (34, 197, 94))
     
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(90, 8, f"UTILIDAD NETA: {fmt_money(kpis['prof_total'])}", 1)
-    pdf.cell(90, 8, f"MARGEN FINAL: {kpis['margin_total']:.1f}%", 1, 1)
-    pdf.ln(10)
+    pdf.set_y(start_y + 30)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 10, f"MARGEN OPERACIONAL: {kpis['margin_total']:.1f}%", 0, 1, 'R')
     
-    # 2. Detalle Harvester
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Detalle Operacional: Harvester", 0, 1)
-    pdf.set_font("Arial", size=10)
-    pdf.cell(0, 8, f"Jornada: {state['h_days']} dias x {state['h_hours']} horas", 0, 1)
-    pdf.cell(0, 8, f"Tarifa Aplicada: {fmt_money(state['price_h'])} / MR", 0, 1)
-    pdf.cell(0, 8, f"Ingresos H: {fmt_money(kpis['inc_h'])} | Costos H: {fmt_money(kpis['cost_h'])}", 0, 1)
     pdf.ln(5)
     
-    # 3. Detalle Forwarder
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Detalle Operacional: Forwarder", 0, 1)
-    pdf.set_font("Arial", size=10)
-    pdf.cell(0, 8, f"Jornada: {state['f_days']} dias x {state['f_hours']} horas", 0, 1)
-    pdf.cell(0, 8, f"Tarifa Aplicada: {fmt_money(state['price_f'])} / MR", 0, 1)
-    pdf.cell(0, 8, f"Ingresos F: {fmt_money(kpis['inc_f'])} | Costos F: {fmt_money(kpis['cost_f'])}", 0, 1)
+    # 2. Detalle Operacional (Dos columnas simuladas)
+    pdf.chapter_title('DETALLE POR MÁQUINA')
+    
+    # Harvester
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(95, 8, "🚜 HARVESTER", 0, 1)
+    pdf.set_font('Arial', '', 9)
+    pdf.cell(95, 6, f"Producción Mes: {kpis['mr_h']:,.1f} MR", 0, 1)
+    pdf.cell(95, 6, f"Tarifa Aplicada: {fmt_money(state['price_h'])} / MR", 0, 1)
+    pdf.cell(95, 6, f"Ingresos: {fmt_money(kpis['inc_h'])}", 0, 1)
+    pdf.cell(95, 6, f"Costos: {fmt_money(kpis['cost_h'])}", 0, 1)
+    pdf.set_font('Arial', 'B', 9)
+    pdf.cell(95, 6, f"Utilidad H: {fmt_money(kpis['inc_h'] - kpis['cost_h'])}", 0, 1)
+    
+    # Mover cursor para Forwarder (Lado derecho)
+    pdf.set_xy(110, pdf.get_y() - 30) # Subir cursor
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(95, 8, "🚜 FORWARDER", 0, 1)
+    pdf.set_xy(110, pdf.get_y())
+    pdf.set_font('Arial', '', 9)
+    pdf.cell(95, 6, f"Producción Mes: {kpis['mr_f']:,.1f} MR", 0, 1)
+    pdf.set_xy(110, pdf.get_y())
+    pdf.cell(95, 6, f"Tarifa Aplicada: {fmt_money(state['price_f'])} / MR", 0, 1)
+    pdf.set_xy(110, pdf.get_y())
+    pdf.cell(95, 6, f"Ingresos: {fmt_money(kpis['inc_f'])}", 0, 1)
+    pdf.set_xy(110, pdf.get_y())
+    pdf.cell(95, 6, f"Costos: {fmt_money(kpis['cost_f'])}", 0, 1)
+    pdf.set_xy(110, pdf.get_y())
+    pdf.set_font('Arial', 'B', 9)
+    pdf.cell(95, 6, f"Utilidad F: {fmt_money(kpis['inc_f'] - kpis['cost_f'])}", 0, 1)
+    
     pdf.ln(10)
     
-    # 4. Parámetros Económicos
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Parametros de Mercado", 0, 1)
-    pdf.set_font("Arial", size=10)
-    pdf.cell(0, 8, f"Valor UF: {fmt_money(state['uf_manual'])}", 0, 1)
-    pdf.cell(0, 8, f"Precio Diesel: {fmt_money(state['fuel_price'])} / Lt", 0, 1)
-    pdf.cell(0, 8, f"Factor Conversion: {state['conv_factor']} m3/MR", 0, 1)
-
+    # 3. Tablas de Costos (Resumen)
+    pdf.chapter_title('ESTRUCTURA DE COSTOS')
+    
+    # Harvester Table
+    pdf.set_font('Arial', 'B', 9)
+    pdf.cell(0, 8, "Costos Directos Harvester", 0, 1)
+    
+    data_h = []
+    for _, row in state['df_harvester'].iterrows():
+        tipo = row.get('Tipo', '$/Mes')
+        val_fmt = fmt_money(row['Valor'])
+        data_h.append([row['Ítem'], tipo, val_fmt])
+        
+    pdf.table_simple(['Item', 'Unidad', 'Valor'], data_h, [90, 40, 60])
+    pdf.ln(5)
+    
+    # Forwarder Table
+    pdf.set_font('Arial', 'B', 9)
+    pdf.cell(0, 8, "Costos Directos Forwarder", 0, 1)
+    
+    data_f = []
+    for _, row in state['df_forwarder'].iterrows():
+        tipo = row.get('Unidad', '$/Mes')
+        val_fmt = fmt_money(row['Valor'])
+        data_f.append([row['Ítem'], tipo, val_fmt])
+        
+    pdf.table_simple(['Item', 'Unidad', 'Valor'], data_f, [90, 40, 60])
+    
     return pdf.output(dest='S').encode('latin-1', 'replace')
 
 @st.cache_data(ttl=3600) 
@@ -199,7 +282,7 @@ def save_config():
             else: state_to_save[k] = val
     with open(CONFIG_FILE, 'w') as f: json.dump(state_to_save, f, cls=NumpyEncoder)
 
-# --- 3. INICIALIZACIÓN ---
+# --- 4. INICIALIZACIÓN ---
 saved = load_config()
 
 def init_key(key, default_value):
@@ -252,10 +335,7 @@ cost_h_total_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
 cost_f_total_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
 
 # --- 6. INTERFAZ ---
-st.title("🌲 Sistema de Control de Gestión Forestal")
-
-# Preparación de datos KPI para PDF (Global)
-pdf_kpis = {} 
+st.title("🌲 Forestal Costing Master")
 
 tab_dash, tab_strat, tab_h, tab_f, tab_ind = st.tabs([
     "📊 Resultado Operacional", "🎯 Estrategia Precios", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos"
@@ -281,31 +361,24 @@ with tab_dash:
     st.divider()
 
     # 2. CÁLCULOS PROFUNDOS
-    # Harvester
     inc_h_hr = mr_h_hr * st.session_state['price_h']
     inc_h_mes = inc_h_hr * h_horas * h_dias
     inc_h_day = inc_h_hr * h_horas
-    
     cost_h_mes = cost_h_total_mes
     cost_h_day = cost_h_mes / h_dias if h_dias > 0 else 0
     cost_h_hr = cost_h_mes / (h_dias * h_horas) if (h_dias*h_horas) > 0 else 0
-    
     prof_h_mes = inc_h_mes - cost_h_mes
     margin_h = (prof_h_mes / inc_h_mes * 100) if inc_h_mes > 0 else 0
 
-    # Forwarder
     inc_f_hr = mr_f_hr * st.session_state['price_f']
     inc_f_mes = inc_f_hr * f_horas * f_dias
     inc_f_day = inc_f_hr * f_horas
-    
     cost_f_mes = cost_f_total_mes
     cost_f_day = cost_f_mes / f_dias if f_dias > 0 else 0
     cost_f_hr = cost_f_mes / (f_dias * f_horas) if (f_dias*f_horas) > 0 else 0
-    
     prof_f_mes = inc_f_mes - cost_f_mes
     margin_f = (prof_f_mes / inc_f_mes * 100) if inc_f_mes > 0 else 0
 
-    # Consolidado
     prof_total_mes = prof_h_mes + prof_f_mes
     inc_total_mes = inc_h_mes + inc_f_mes
     cost_total_mes = cost_h_mes + cost_f_mes
@@ -329,18 +402,16 @@ with tab_dash:
         fig_money = go.Figure()
         categories = ['Harvester', 'Forwarder', 'Total Sistema']
         
-        fig_money.add_trace(go.Bar(name='Venta ($)', x=categories, y=[inc_h_mes, inc_f_mes, inc_total_mes], marker_color='#3b82f6'))
-        fig_money.add_trace(go.Bar(name='Costo ($)', x=categories, y=[cost_h_mes, cost_f_mes, cost_total_mes], marker_color='#ef4444'))
-        fig_money.add_trace(go.Bar(name='Ganancia ($)', x=categories, y=[prof_h_mes, prof_f_mes, prof_total_mes], marker_color='#22c55e'))
+        fig_money.add_trace(go.Bar(name='Venta ($)', x=categories, y=[inc_h_mes, inc_f_mes, inc_total_mes], marker_color='#3b82f6', text_auto='.2s'))
+        fig_money.add_trace(go.Bar(name='Costo ($)', x=categories, y=[cost_h_mes, cost_f_mes, cost_total_mes], marker_color='#ef4444', text_auto='.2s'))
+        fig_money.add_trace(go.Bar(name='Ganancia ($)', x=categories, y=[prof_h_mes, prof_f_mes, prof_total_mes], marker_color='#22c55e', text_auto='.2s'))
         
-        fig_money.update_layout(barmode='group', title="Resultado Operacional (Dinero)", height=350)
+        fig_money.update_layout(barmode='group', title="Resultado Operacional (Dinero)", height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_money, use_container_width=True)
         
     with col_chart_2:
         # Gráfico de Barras (%)
         fig_pct = go.Figure()
-        
-        # Colores dinámicos según meta
         colors_pct = [
             '#22c55e' if margin_h >= target_pct else '#ef4444',
             '#22c55e' if margin_f >= target_pct else '#ef4444',
@@ -355,7 +426,6 @@ with tab_dash:
             textposition='auto'
         ))
         
-        # Línea de Meta
         fig_pct.add_shape(type="line", x0=-0.5, x1=2.5, y0=target_pct, y1=target_pct, line=dict(color="black", width=2, dash="dash"))
         fig_pct.update_layout(title=f"Margen % (Meta: {target_pct}%)", height=350)
         st.plotly_chart(fig_pct, use_container_width=True)
@@ -363,7 +433,6 @@ with tab_dash:
     # 4. TABLAS DETALLADAS
     st.subheader("3. Detalle Financiero por Periodo")
     
-    # FUNCION DE RENDERIZADO DE TARJETAS PRO
     def render_pro_card(title, df, margin, target, color_border):
         badge = "badge-success" if margin >= target else "badge-danger"
         badge_text = "CUMPLE META" if margin >= target else "BAJO META"
@@ -407,13 +476,13 @@ with tab_dash:
     with c_card2:
         st.markdown(render_pro_card("🚜 FORWARDER", df_f_display, margin_f, target_pct, "#22c55e"), unsafe_allow_html=True)
 
-# --- SIDEBAR (CON PDF) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("## ⚙️ Panel de Control")
     
     # GENERAR PDF
     try:
-        pdf_bytes = create_pdf_report(st.session_state, pdf_kpis)
+        pdf_bytes = create_pro_pdf(st.session_state, pdf_kpis)
         st.download_button(
             "📄 Exportar Informe PDF", 
             data=pdf_bytes, 
@@ -422,7 +491,7 @@ with st.sidebar:
             type="primary"
         )
     except Exception as e:
-        st.warning("Para exportar PDF instala 'fpdf' en requirements.txt")
+        st.warning(f"Error PDF: {e}")
     
     if st.button("♻️ Reset App"):
         if os.path.exists(CONFIG_FILE): os.remove(CONFIG_FILE)
@@ -523,9 +592,9 @@ with tab_ind:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**RRHH**")
-        st.session_state['df_rrhh'] = st.data_editor(st.session_state['df_rrhh'], num_rows="dynamic", use_container_width=True, column_config={"Costo Empresa": st.column_config.NumberColumn(format="$ %d")})
+        st.session_state['df_rrhh'] = st.data_editor(st.session_state['df_rrhh'], num_rows="dynamic", column_config={"Costo Empresa": st.column_config.NumberColumn(format="$ %d")})
     with c2:
         st.markdown("**Flota**")
-        st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], num_rows="dynamic", use_container_width=True, column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
+        st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], num_rows="dynamic", column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
     save_config()
     st.success(f"Total Indirectos: {fmt_money(st.session_state['df_rrhh']['Costo Empresa'].sum() + st.session_state['df_flota']['Monto'].sum())}")
