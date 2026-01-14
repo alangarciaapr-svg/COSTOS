@@ -68,16 +68,28 @@ st.markdown("""
         text-transform: uppercase;
     }
     
-    /* Sidebar Dinámico */
+    /* Sidebar Dinámico y Profesional (CORREGIDO) */
     section[data-testid="stSidebar"] {
-        background-color: #1e293b;
+        background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
         color: white;
     }
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+    /* Textos en Sidebar */
+    section[data-testid="stSidebar"] .stMarkdown, 
+    section[data-testid="stSidebar"] h1, 
+    section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] h3,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] p {
         color: #f8fafc !important;
     }
-    section[data-testid="stSidebar"] label {
-        color: #cbd5e1 !important;
+    /* Inputs en Sidebar */
+    section[data-testid="stSidebar"] input {
+        background-color: #334155 !important;
+        color: white !important;
+        border: 1px solid #475569 !important;
+    }
+    section[data-testid="stSidebar"] div[data-baseweb="slider"] div {
+        background-color: #3b82f6 !important;
     }
     
     /* Ocultar índices */
@@ -86,7 +98,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v32_simple_inputs.json'
+CONFIG_FILE = 'forest_config_v32_sim_mr.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -104,7 +116,7 @@ class PDF_Pro(FPDF):
     def header(self):
         self.set_fill_color(30, 41, 59)
         self.rect(0, 0, 210, 45, 'F')
-        self.set_font('Arial', 'B', 14) # Ajustado tamaño
+        self.set_font('Arial', 'B', 14)
         self.set_text_color(255, 255, 255)
         self.set_xy(10, 12)
         self.cell(0, 10, 'SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.', 0, 1, 'L')
@@ -238,7 +250,6 @@ def load_config():
     return {}
 
 def save_config():
-    # Eliminado fuel_price de keys
     keys = ["uf_manual", "h_days", "h_hours", "f_days", "f_hours", 
             "cost_total_h", "cost_total_f", "cost_total_ind",
             "alloc_pct", "price_h", "price_f", "conv_factor", "target_company_margin",
@@ -273,7 +284,7 @@ init_key('f_hours', 10.0)
 init_key('prod_h_m3', 25.0)
 init_key('prod_f_m3', 28.0)
 
-# NUEVOS INPUTS SIMPLIFICADOS (TOTALES)
+# INPUTS TOTALES
 init_key('cost_total_h', 15000000.0)
 init_key('cost_total_f', 12000000.0)
 init_key('cost_total_ind', 5000000.0)
@@ -284,7 +295,7 @@ h_hours = float(st.session_state['h_hours'])
 f_dias = int(st.session_state['f_days'])
 f_hours = float(st.session_state['f_hours'])
 
-# Costos (Ahora tomados directo del input)
+# Costos (Directo del input)
 tot_h_dir = float(st.session_state['cost_total_h'])
 tot_f_dir = float(st.session_state['cost_total_f'])
 tot_ind = float(st.session_state['cost_total_ind'])
@@ -335,16 +346,16 @@ pdf_kpis = {
 # --- 6. INTERFAZ ---
 st.title("COSTOS / PRODUCCION SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.")
 
-# SIDEBAR LIMPIA Y DINAMICA
+# SIDEBAR (Diseño Mejorado y Contraste corregido)
 with st.sidebar:
-    st.markdown("### ⚙️ PANEL DE CONTROL")
+    st.markdown("### ⚙️ PANEL DE GESTIÓN")
     
-    # 1. Tarifas (Primero porque es crítico)
-    with st.expander("💵 Tarifas de Venta ($/MR)", expanded=True):
+    # 1. Tarifas
+    with st.expander("💵 Tarifas Venta ($/MR)", expanded=True):
         st.session_state['price_h'] = st.number_input("Harvester", value=float(st.session_state['price_h']), on_change=save_config)
         st.session_state['price_f'] = st.number_input("Forwarder", value=float(st.session_state['price_f']), on_change=save_config)
 
-    # 2. Jornada (Organizada)
+    # 2. Jornada
     with st.expander("🕒 Jornada Operativa", expanded=True):
         c1, c2 = st.columns(2)
         st.session_state['h_days'] = c1.number_input("Días H", value=int(st.session_state['h_days']), on_change=save_config)
@@ -354,7 +365,7 @@ with st.sidebar:
         st.session_state['f_days'] = c3.number_input("Días F", value=int(st.session_state['f_days']), on_change=save_config)
         st.session_state['f_hours'] = c4.number_input("Hrs F", value=float(st.session_state['f_hours']), on_change=save_config)
 
-    # 3. Parametros Técnicos
+    # 3. Parametros
     with st.expander("📏 Técnica y Objetivos", expanded=False):
         st.session_state['conv_factor'] = st.number_input("Factor Conv. (m³/MR)", value=float(st.session_state['conv_factor']), on_change=save_config)
         st.session_state['alloc_pct'] = st.slider("% Indirectos a Harvester", 0, 100, int(st.session_state['alloc_pct']*100)) / 100.0
@@ -454,6 +465,59 @@ with tab_dash:
         ])
         st.markdown(render_pro_card("🚜 FORWARDER", df_f, margin_f, target_pct, "#22c55e"), unsafe_allow_html=True)
 
+# --- TAB SIMULADOR CORREGIDO ---
+with tab_strat:
+    st.subheader("Simulador de Tarifas")
+    
+    col_sim1, col_sim2 = st.columns(2)
+    with col_sim1:
+        sim_mr = st.number_input("Productividad Objetivo (MR/Hr)", value=20.0, step=0.5)
+    with col_sim2:
+        sim_factor = st.number_input("Factor Faena (m³/MR)", value=2.44, step=0.01)
+        
+    equiv_m3 = sim_mr * sim_factor
+    st.info(f"Equivale a: **{equiv_m3:,.1f} m³/Hr**")
+    
+    # Costo por MR basado en el input de productividad
+    # Costo Hora Total / MR Hora
+    
+    cost_hr_h_sys = cost_h_total_mes / (h_dias * h_hours) if (h_dias*h_hours)>0 else 0
+    cost_hr_f_sys = cost_f_total_mes / (f_dias * f_hours) if (f_dias*f_hours)>0 else 0
+    
+    unit_cost_h = cost_hr_h_sys / sim_mr if sim_mr > 0 else 0
+    unit_cost_f = cost_hr_f_sys / sim_mr if sim_mr > 0 else 0
+    
+    st.divider()
+    st.markdown("#### Tarifas Sugeridas para esta Faena ($/MR)")
+    
+    c30, c35 = st.columns(2)
+    
+    with c30:
+        p30_h = calc_price(unit_cost_h, 30)
+        p30_f = calc_price(unit_cost_f, 30)
+        st.markdown(f"""
+        <div class="machine-card" style="border-top-color: #fcd34d">
+            <div style="font-weight:bold; color:#b45309; margin-bottom:10px">META 30% MARGEN</div>
+            <div style="display:flex; justify-content:space-between"><span>Harvester:</span><b>{fmt_money(p30_h)}</b></div>
+            <div style="display:flex; justify-content:space-between"><span>Forwarder:</span><b>{fmt_money(p30_f)}</b></div>
+            <hr>
+            <div style="font-size:1.2em; font-weight:800; text-align:center">{fmt_money(p30_h+p30_f)} / MR</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c35:
+        p35_h = calc_price(unit_cost_h, 35)
+        p35_f = calc_price(unit_cost_f, 35)
+        st.markdown(f"""
+        <div class="machine-card" style="border-top-color: #22c55e">
+            <div style="font-weight:bold; color:#15803d; margin-bottom:10px">META 35% MARGEN</div>
+            <div style="display:flex; justify-content:space-between"><span>Harvester:</span><b>{fmt_money(p35_h)}</b></div>
+            <div style="display:flex; justify-content:space-between"><span>Forwarder:</span><b>{fmt_money(p35_f)}</b></div>
+            <hr>
+            <div style="font-size:1.2em; font-weight:800; text-align:center">{fmt_money(p35_h+p35_f)} / MR</div>
+        </div>
+        """, unsafe_allow_html=True)
+
 # --- TAB FAENA ---
 with tab_faena:
     st.header("🧮 Cierre de Faena")
@@ -492,22 +556,6 @@ with tab_faena:
             </div>
             """, unsafe_allow_html=True)
         st.success(f"💰 **UTILIDAD TOTAL DEL LOTE: {fmt_money(prof_lote_h + prof_lote_f)}**")
-
-# --- TAB STRAT ---
-with tab_strat:
-    st.subheader("Simulador de Tarifas")
-    prod_cotiza = st.number_input("Prod. Estimada (m³/hr)", value=25.0)
-    mr_cotiza_sim = prod_cotiza / st.session_state['conv_factor']
-    
-    cost_unit_h_sim = (cost_h_total_mes / (h_dias*h_hours)) / mr_cotiza_sim if mr_cotiza_sim > 0 else 0
-    cost_unit_f_sim = (cost_f_total_mes / (f_dias*f_hours)) / mr_cotiza_sim if mr_cotiza_sim > 0 else 0
-    
-    p30 = calc_price(cost_unit_h_sim+cost_unit_f_sim, 30)
-    p35 = calc_price(cost_unit_h_sim+cost_unit_f_sim, 35)
-    
-    c1, c2 = st.columns(2)
-    c1.metric("Tarifa Sugerida (30%)", fmt_money(p30))
-    c2.metric("Tarifa Sugerida (35%)", fmt_money(p35))
 
 # --- TABS COSTOS (TOTALES MANUALES) ---
 with tab_h:
