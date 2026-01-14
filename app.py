@@ -29,7 +29,8 @@ st.markdown("""
     h1, h2, h3 {color: #0f172a; font-family: 'Segoe UI', sans-serif;}
     
     /* Estilos de Métricas */
-    div[data-testid="stMetricValue"] { font-size: 1.4rem; font-weight: 700; }
+    div[data-testid="stMetricValue"] { font-size: 1.6rem; font-weight: 800; color: #0f172a; }
+    div[data-testid="stMetricLabel"] { font-size: 1rem; font-weight: 600; color: #64748b; }
     
     /* Tarjetas Profesionales */
     .machine-card {
@@ -58,7 +59,6 @@ st.markdown("""
     .badge-ok { background-color: #dcfce7; color: #15803d; padding: 4px 8px; border-radius: 6px; font-size: 0.75em; }
     .badge-bad { background-color: #fee2e2; color: #b91c1c; padding: 4px 8px; border-radius: 6px; font-size: 0.75em; }
     
-    /* Totales */
     .total-row {
         margin-top: 15px;
         padding-top: 10px;
@@ -69,6 +69,14 @@ st.markdown("""
         font-size: 1.1em;
         color: #0f172a;
     }
+    
+    .faena-card {
+        background-color: #f0f9ff;
+        border: 1px solid #bae6fd;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+    }
 
     /* Ocultar índices de tablas nativas */
     thead tr th:first-child {display:none}
@@ -77,7 +85,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v30_final_restored.json'
+CONFIG_FILE = 'forest_config_v31_totals.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -158,14 +166,11 @@ class PDF_Pro(FPDF):
         w_inc = income * scale
         w_cost = cost * scale
         
-        # Barra Ingreso (Azul)
         self.set_fill_color(59, 130, 246)
         self.rect(45, y_pos, w_inc, 5, 'F')
-        # Barra Costo (Rojo)
         self.set_fill_color(239, 68, 68)
         self.rect(45, y_pos + 6, w_cost, 5, 'F')
         
-        # Textos
         self.set_xy(45 + w_inc + 2, y_pos - 1)
         self.set_font('Arial', '', 8)
         self.cell(30, 6, f"Venta: {fmt_money(income)}", 0, 1)
@@ -173,7 +178,6 @@ class PDF_Pro(FPDF):
         self.set_xy(45 + w_cost + 2, y_pos + 5)
         self.cell(30, 6, f"Costo: {fmt_money(cost)}", 0, 1)
         
-        # Margen
         profit = income - cost
         margin = (profit / income * 100) if income > 0 else 0
         self.set_xy(160, y_pos + 2)
@@ -227,6 +231,7 @@ def create_pro_pdf(state, kpis):
     # 2. DETALLE MAQUINAS
     pdf.chapter_title("2. DESGLOSE POR MAQUINA (Mensual)")
     pdf.ln(2)
+    
     pdf.draw_financial_bar("HARVESTER", kpis['inc_h_mes'], kpis['cost_h_mes'], pdf.get_y())
     pdf.ln(15)
     pdf.draw_financial_bar("FORWARDER", kpis['inc_f_mes'], kpis['cost_f_mes'], pdf.get_y())
@@ -284,7 +289,7 @@ def save_config():
             else: state_to_save[k] = val
     with open(CONFIG_FILE, 'w') as f: json.dump(state_to_save, f, cls=NumpyEncoder)
 
-# --- 4. INICIALIZACIÓN DE VARIABLES ---
+# --- 4. INICIALIZACIÓN ---
 saved = load_config()
 
 def init_key(key, default_value):
@@ -321,7 +326,7 @@ init_key('df_forwarder', pd.DataFrame([
 init_key('df_rrhh', pd.DataFrame([{"Cargo": "Jefe Faena", "Costo Empresa": 2300000}]))
 init_key('df_flota', pd.DataFrame([{"Ítem": "Camionetas", "Monto": 1600000}]))
 
-# --- 5. CÁLCULOS MATEMÁTICOS CENTRALIZADOS ---
+# --- 5. CÁLCULOS CENTRALES ---
 h_dias = int(st.session_state['h_days'])
 h_hours = float(st.session_state['h_hours'])
 f_dias = int(st.session_state['f_days'])
@@ -335,16 +340,15 @@ tot_h_dir, tot_f_dir, tot_ind = calculate_system_costs(
     st.session_state.get('uf_manual', 0), st.session_state['fuel_price']
 )
 
-# Totales Mensuales
 cost_h_total_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
 cost_f_total_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
 cost_total_mes = cost_h_total_mes + cost_f_total_mes
 
-# Producción Real
+# Producción
 mr_h_hr = st.session_state['prod_h_m3'] / st.session_state['conv_factor']
 mr_f_hr = st.session_state['prod_f_m3'] / st.session_state['conv_factor']
 
-# Ingresos y Utilidad Harvester
+# Ingresos
 inc_h_hr = mr_h_hr * st.session_state['price_h']
 inc_h_day = inc_h_hr * h_hours
 inc_h_mes = inc_h_day * h_dias
@@ -352,7 +356,6 @@ cost_h_hr = cost_h_total_mes / (h_dias * h_hours) if (h_dias*h_hours) > 0 else 0
 prof_h_mes = inc_h_mes - cost_h_total_mes
 margin_h = (prof_h_mes / inc_h_mes * 100) if inc_h_mes > 0 else 0
 
-# Ingresos y Utilidad Forwarder
 inc_f_hr = mr_f_hr * st.session_state['price_f']
 inc_f_day = inc_f_hr * f_hours
 inc_f_mes = inc_f_day * f_dias
@@ -360,12 +363,11 @@ cost_f_hr = cost_f_total_mes / (f_dias * f_hours) if (f_dias*f_hours) > 0 else 0
 prof_f_mes = inc_f_mes - cost_f_total_mes
 margin_f = (prof_f_mes / inc_f_mes * 100) if inc_f_mes > 0 else 0
 
-# Consolidado
 inc_total = inc_h_mes + inc_f_mes
 prof_total = prof_h_mes + prof_f_mes
 margin_total = (prof_total / inc_total * 100) if inc_total > 0 else 0
 
-# Empaquetado para PDF
+# KPIs PDF
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
     'inc_total': inc_total, 'cost_total': cost_total_mes, 'prof_total': prof_total,
@@ -383,7 +385,6 @@ pdf_kpis = {
 # --- 6. INTERFAZ ---
 st.title("🌲 Sistema de Control de Gestión Forestal")
 
-# BARRA LATERAL (Restaurada)
 with st.sidebar:
     st.markdown("## ⚙️ Panel de Control")
     try:
@@ -499,7 +500,7 @@ with tab_dash:
 
 # --- TAB FAENA ---
 with tab_faena:
-    st.header("🧮 Cierre de Faena (Cálculo por Lote)")
+    st.header("🧮 Cierre de Faena")
     st.markdown("Ingresa el **Total de Metros Ruma (MR)** de una faena para ver su resultado específico.")
     mr_lote = st.number_input("Total MR Faena", value=1000.0, step=100.0)
     
@@ -542,7 +543,6 @@ with tab_strat:
     prod_cotiza = st.number_input("Prod. Estimada (m³/hr)", value=25.0)
     mr_cotiza_sim = prod_cotiza / st.session_state['conv_factor']
     
-    # Costo hora sistema usando totales mensuales ya calculados (SOLUCION ERROR NAME ERROR)
     cost_unit_h_sim = (cost_h_total_mes / (h_dias*h_hours)) / mr_cotiza_sim if mr_cotiza_sim > 0 else 0
     cost_unit_f_sim = (cost_f_total_mes / (f_dias*f_hours)) / mr_cotiza_sim if mr_cotiza_sim > 0 else 0
     
@@ -555,20 +555,29 @@ with tab_strat:
 
 # --- TABS EDICIÓN ---
 with tab_h:
+    st.subheader("Costos Harvester")
+    # Mostrar Total GRANDE
+    total_h_display = calculate_single_machine_monthly_cost(st.session_state['df_harvester'], h_dias, h_hours, st.session_state.get('uf_manual',0), st.session_state['fuel_price'], 'H')
+    st.metric("💰 COSTO DIRECTO MENSUAL", fmt_money(total_h_display))
+    
     edited_h = st.data_editor(st.session_state['df_harvester'], num_rows="dynamic", use_container_width=True, column_config={"Valor": st.column_config.NumberColumn(format="$ %d")})
     st.session_state['df_harvester'] = edited_h
     save_config()
-    st.info(f"Total Directo: {fmt_money(calculate_single_machine_monthly_cost(edited_h, h_dias, h_hours, st.session_state.get('uf_manual',0), st.session_state['fuel_price'], 'H'))}")
 
 with tab_f:
+    st.subheader("Costos Forwarder")
+    total_f_display = calculate_single_machine_monthly_cost(st.session_state['df_forwarder'], f_dias, f_hours, st.session_state.get('uf_manual',0), st.session_state['fuel_price'], 'F')
+    st.metric("💰 COSTO DIRECTO MENSUAL", fmt_money(total_f_display))
+    
     edited_f = st.data_editor(st.session_state['df_forwarder'], num_rows="dynamic", use_container_width=True, column_config={"Valor": st.column_config.NumberColumn(format="$ %d")})
     st.session_state['df_forwarder'] = edited_f
     save_config()
-    st.info(f"Total Directo: {fmt_money(calculate_single_machine_monthly_cost(edited_f, f_dias, f_hours, st.session_state.get('uf_manual',0), st.session_state['fuel_price'], 'F'))}")
 
 with tab_ind:
     c1, c2 = st.columns(2)
     with c1: st.session_state['df_rrhh'] = st.data_editor(st.session_state['df_rrhh'], num_rows="dynamic", column_config={"Costo Empresa": st.column_config.NumberColumn(format="$ %d")})
     with c2: st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], num_rows="dynamic", column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
     save_config()
-    st.success(f"Total Indirectos: {fmt_money(st.session_state['df_rrhh']['Costo Empresa'].sum() + st.session_state['df_flota']['Monto'].sum())}")
+    
+    total_ind_display = st.session_state['df_rrhh']['Costo Empresa'].sum() + st.session_state['df_flota']['Monto'].sum()
+    st.metric("💰 TOTAL GASTOS INDIRECTOS", fmt_money(total_ind_display))
