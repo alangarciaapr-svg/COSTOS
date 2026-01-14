@@ -68,28 +68,27 @@ st.markdown("""
         text-transform: uppercase;
     }
     
-    /* Sidebar Dinámico y Profesional (CORREGIDO) */
+    /* --- SIDEBAR BLANCO Y LIMPIO (MODIFICADO) --- */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-        color: white;
+        background-color: #ffffff;
+        border-right: 1px solid #e2e8f0;
     }
-    /* Textos en Sidebar */
-    section[data-testid="stSidebar"] .stMarkdown, 
+    
+    /* Forzar textos oscuros en Sidebar para contraste */
     section[data-testid="stSidebar"] h1, 
     section[data-testid="stSidebar"] h2, 
     section[data-testid="stSidebar"] h3,
     section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] .stMarkdown,
     section[data-testid="stSidebar"] p {
-        color: #f8fafc !important;
+        color: #1e293b !important; /* Azul oscuro corporativo */
     }
-    /* Inputs en Sidebar */
+    
+    /* Inputs normales en Sidebar */
     section[data-testid="stSidebar"] input {
-        background-color: #334155 !important;
-        color: white !important;
-        border: 1px solid #475569 !important;
-    }
-    section[data-testid="stSidebar"] div[data-baseweb="slider"] div {
-        background-color: #3b82f6 !important;
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
+        border: 1px solid #cbd5e1 !important;
     }
     
     /* Ocultar índices */
@@ -98,7 +97,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v32_sim_mr.json'
+CONFIG_FILE = 'forest_config_v33_white_sidebar.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -346,11 +345,11 @@ pdf_kpis = {
 # --- 6. INTERFAZ ---
 st.title("COSTOS / PRODUCCION SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.")
 
-# SIDEBAR (Diseño Mejorado y Contraste corregido)
+# SIDEBAR LIMPIA Y BLANCA
 with st.sidebar:
     st.markdown("### ⚙️ PANEL DE GESTIÓN")
     
-    # 1. Tarifas
+    # 1. Tarifas (Primero porque es crítico)
     with st.expander("💵 Tarifas Venta ($/MR)", expanded=True):
         st.session_state['price_h'] = st.number_input("Harvester", value=float(st.session_state['price_h']), on_change=save_config)
         st.session_state['price_f'] = st.number_input("Forwarder", value=float(st.session_state['price_f']), on_change=save_config)
