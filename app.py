@@ -26,26 +26,29 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main {background-color: #f8fafc;}
-    h1 {color: #1e3a8a; font-family: 'Arial Black', sans-serif; font-size: 2.2rem;}
+    h1 {color: #1e3a8a; font-family: 'Arial Black', sans-serif; font-size: 2rem;}
     h2, h3 {color: #334155; font-family: 'Segoe UI', sans-serif;}
     
-    /* Input Gigante para Costos */
+    /* Input Gigante para Costos Totales */
     .big-input input {
-        font-size: 1.5rem !important;
-        font-weight: bold !important;
-        color: #1e3a8a !important;
-        background-color: #f1f5f9 !important;
+        font-size: 1.6rem !important;
+        font-weight: 800 !important;
+        color: #1e40af !important;
+        background-color: #ffffff !important;
+        border: 2px solid #cbd5e1 !important;
         padding: 15px !important;
+        border-radius: 8px !important;
     }
     .big-input label {
         font-size: 1.2rem !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
+        color: #475569 !important;
     }
 
-    /* Estilos de Métricas */
-    div[data-testid="stMetricValue"] { font-size: 1.4rem; font-weight: 700; color: #0f172a; }
+    /* Métricas */
+    div[data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 700; color: #0f172a; }
     
-    /* Tarjetas Profesionales */
+    /* Tarjetas de Resultados */
     .machine-card {
         background-color: white;
         padding: 20px;
@@ -54,50 +57,39 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
     }
-    .card-h { border-top-color: #eab308; } 
-    .card-f { border-top-color: #22c55e; } 
-    
     .card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 15px;
-        font-weight: 800;
-        font-size: 1.1em;
-        color: #334155;
-        text-transform: uppercase;
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 15px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
-    /* --- SIDEBAR BLANCO Y LIMPIO (MODIFICADO) --- */
+    /* --- SIDEBAR BLANCO PROFESIONAL --- */
     section[data-testid="stSidebar"] {
         background-color: #ffffff;
         border-right: 1px solid #e2e8f0;
     }
-    
-    /* Forzar textos oscuros en Sidebar para contraste */
+    /* Textos oscuros para alto contraste */
+    section[data-testid="stSidebar"] .stMarkdown,
     section[data-testid="stSidebar"] h1, 
     section[data-testid="stSidebar"] h2, 
-    section[data-testid="stSidebar"] h3,
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] .stMarkdown,
+    section[data-testid="stSidebar"] h3, 
+    section[data-testid="stSidebar"] label, 
     section[data-testid="stSidebar"] p {
-        color: #1e293b !important; /* Azul oscuro corporativo */
+        color: #1e293b !important;
     }
-    
-    /* Inputs normales en Sidebar */
+    /* Inputs Sidebar */
     section[data-testid="stSidebar"] input {
-        background-color: #f8fafc !important;
+        background-color: #f1f5f9 !important;
         color: #0f172a !important;
         border: 1px solid #cbd5e1 !important;
     }
     
-    /* Ocultar índices */
+    /* Ocultar elementos nativos innecesarios */
     thead tr th:first-child {display:none}
     tbody th {display:none}
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v33_white_sidebar.json'
+CONFIG_FILE = 'forest_config_v34_final_clean.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -249,7 +241,7 @@ def load_config():
     return {}
 
 def save_config():
-    keys = ["uf_manual", "h_days", "h_hours", "f_days", "f_hours", 
+    keys = ["h_days", "h_hours", "f_days", "f_hours", 
             "cost_total_h", "cost_total_f", "cost_total_ind",
             "alloc_pct", "price_h", "price_f", "conv_factor", "target_company_margin",
             "prod_h_m3", "prod_f_m3"]
@@ -270,7 +262,6 @@ def init_key(key, default_value):
         else:
             st.session_state[key] = default_value
 
-init_key('uf_manual', 39755.0)
 init_key('price_h', 6500.0)
 init_key('price_f', 5000.0)
 init_key('alloc_pct', 0.5)
@@ -283,7 +274,7 @@ init_key('f_hours', 10.0)
 init_key('prod_h_m3', 25.0)
 init_key('prod_f_m3', 28.0)
 
-# INPUTS TOTALES
+# INPUTS TOTALES (Valores por defecto)
 init_key('cost_total_h', 15000000.0)
 init_key('cost_total_f', 12000000.0)
 init_key('cost_total_ind', 5000000.0)
@@ -294,20 +285,21 @@ h_hours = float(st.session_state['h_hours'])
 f_dias = int(st.session_state['f_days'])
 f_hours = float(st.session_state['f_hours'])
 
-# Costos (Directo del input)
+# 1. Costos (Directo del input manual)
 tot_h_dir = float(st.session_state['cost_total_h'])
 tot_f_dir = float(st.session_state['cost_total_f'])
 tot_ind = float(st.session_state['cost_total_ind'])
 
+# 2. Distribución Indirectos
 cost_h_total_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
 cost_f_total_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
 cost_total_mes = cost_h_total_mes + cost_f_total_mes
 
-# Producción
+# 3. Producción (Real del Dashboard)
 mr_h_hr = st.session_state['prod_h_m3'] / st.session_state['conv_factor']
 mr_f_hr = st.session_state['prod_f_m3'] / st.session_state['conv_factor']
 
-# Ingresos y Utilidad Harvester
+# 4. Ingresos y Utilidad (Harvester)
 inc_h_hr = mr_h_hr * st.session_state['price_h']
 inc_h_day = inc_h_hr * h_hours
 inc_h_mes = inc_h_day * h_dias
@@ -315,7 +307,7 @@ cost_h_hr = cost_h_total_mes / (h_dias * h_hours) if (h_dias*h_hours) > 0 else 0
 prof_h_mes = inc_h_mes - cost_h_total_mes
 margin_h = (prof_h_mes / inc_h_mes * 100) if inc_h_mes > 0 else 0
 
-# Ingresos y Utilidad Forwarder
+# 5. Ingresos y Utilidad (Forwarder)
 inc_f_hr = mr_f_hr * st.session_state['price_f']
 inc_f_day = inc_f_hr * f_hours
 inc_f_mes = inc_f_day * f_dias
@@ -323,11 +315,12 @@ cost_f_hr = cost_f_total_mes / (f_dias * f_hours) if (f_dias*f_hours) > 0 else 0
 prof_f_mes = inc_f_mes - cost_f_total_mes
 margin_f = (prof_f_mes / inc_f_mes * 100) if inc_f_mes > 0 else 0
 
-# Consolidado
+# 6. Consolidado
 inc_total = inc_h_mes + inc_f_mes
 prof_total = prof_h_mes + prof_f_mes
 margin_total = (prof_total / inc_total * 100) if inc_total > 0 else 0
 
+# 7. Pack Datos PDF
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
     'inc_total': inc_total, 'cost_total': cost_total_mes, 'prof_total': prof_total,
@@ -345,16 +338,13 @@ pdf_kpis = {
 # --- 6. INTERFAZ ---
 st.title("COSTOS / PRODUCCION SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.")
 
-# SIDEBAR LIMPIA Y BLANCA
 with st.sidebar:
     st.markdown("### ⚙️ PANEL DE GESTIÓN")
     
-    # 1. Tarifas (Primero porque es crítico)
     with st.expander("💵 Tarifas Venta ($/MR)", expanded=True):
         st.session_state['price_h'] = st.number_input("Harvester", value=float(st.session_state['price_h']), on_change=save_config)
         st.session_state['price_f'] = st.number_input("Forwarder", value=float(st.session_state['price_f']), on_change=save_config)
 
-    # 2. Jornada
     with st.expander("🕒 Jornada Operativa", expanded=True):
         c1, c2 = st.columns(2)
         st.session_state['h_days'] = c1.number_input("Días H", value=int(st.session_state['h_days']), on_change=save_config)
@@ -364,7 +354,6 @@ with st.sidebar:
         st.session_state['f_days'] = c3.number_input("Días F", value=int(st.session_state['f_days']), on_change=save_config)
         st.session_state['f_hours'] = c4.number_input("Hrs F", value=float(st.session_state['f_hours']), on_change=save_config)
 
-    # 3. Parametros
     with st.expander("📏 Técnica y Objetivos", expanded=False):
         st.session_state['conv_factor'] = st.number_input("Factor Conv. (m³/MR)", value=float(st.session_state['conv_factor']), on_change=save_config)
         st.session_state['alloc_pct'] = st.slider("% Indirectos a Harvester", 0, 100, int(st.session_state['alloc_pct']*100)) / 100.0
@@ -467,6 +456,7 @@ with tab_dash:
 # --- TAB SIMULADOR CORREGIDO ---
 with tab_strat:
     st.subheader("Simulador de Tarifas")
+    st.markdown("Defina el rendimiento esperado para cotizar un nuevo trabajo.")
     
     col_sim1, col_sim2 = st.columns(2)
     with col_sim1:
@@ -475,19 +465,19 @@ with tab_strat:
         sim_factor = st.number_input("Factor Faena (m³/MR)", value=2.44, step=0.01)
         
     equiv_m3 = sim_mr * sim_factor
-    st.info(f"Equivale a: **{equiv_m3:,.1f} m³/Hr**")
+    st.info(f"Equivale a una producción de: **{equiv_m3:,.1f} m³/Hr**")
     
-    # Costo por MR basado en el input de productividad
-    # Costo Hora Total / MR Hora
+    # Cálculo Seguro: Costo Hora Sistema / MR Objetivo
+    # Evitamos errores usando variables ya calculadas globalmente
+    hourly_cost_h_sys = cost_h_total_mes / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
+    hourly_cost_f_sys = cost_f_total_mes / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
     
-    cost_hr_h_sys = cost_h_total_mes / (h_dias * h_hours) if (h_dias*h_hours)>0 else 0
-    cost_hr_f_sys = cost_f_total_mes / (f_dias * f_hours) if (f_dias*f_hours)>0 else 0
-    
-    unit_cost_h = cost_hr_h_sys / sim_mr if sim_mr > 0 else 0
-    unit_cost_f = cost_hr_f_sys / sim_mr if sim_mr > 0 else 0
+    # Costo por MR (Unitario)
+    unit_cost_h = hourly_cost_h_sys / sim_mr if sim_mr > 0 else 0
+    unit_cost_f = hourly_cost_f_sys / sim_mr if sim_mr > 0 else 0
     
     st.divider()
-    st.markdown("#### Tarifas Sugeridas para esta Faena ($/MR)")
+    st.markdown("#### Tarifas Sugeridas ($/MR)")
     
     c30, c35 = st.columns(2)
     
@@ -500,7 +490,7 @@ with tab_strat:
             <div style="display:flex; justify-content:space-between"><span>Harvester:</span><b>{fmt_money(p30_h)}</b></div>
             <div style="display:flex; justify-content:space-between"><span>Forwarder:</span><b>{fmt_money(p30_f)}</b></div>
             <hr>
-            <div style="font-size:1.2em; font-weight:800; text-align:center">{fmt_money(p30_h+p30_f)} / MR</div>
+            <div style="font-size:1.2em; font-weight:800; text-align:center; color:#b45309">{fmt_money(p30_h+p30_f)} / MR</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -513,7 +503,7 @@ with tab_strat:
             <div style="display:flex; justify-content:space-between"><span>Harvester:</span><b>{fmt_money(p35_h)}</b></div>
             <div style="display:flex; justify-content:space-between"><span>Forwarder:</span><b>{fmt_money(p35_f)}</b></div>
             <hr>
-            <div style="font-size:1.2em; font-weight:800; text-align:center">{fmt_money(p35_h+p35_f)} / MR</div>
+            <div style="font-size:1.2em; font-weight:800; text-align:center; color:#15803d">{fmt_money(p35_h+p35_f)} / MR</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -556,21 +546,24 @@ with tab_faena:
             """, unsafe_allow_html=True)
         st.success(f"💰 **UTILIDAD TOTAL DEL LOTE: {fmt_money(prof_lote_h + prof_lote_f)}**")
 
-# --- TABS COSTOS (TOTALES MANUALES) ---
+# --- TABS COSTOS (INPUTS GIGANTES) ---
 with tab_h:
+    st.markdown("### Ingrese el Costo Total Mensual")
     st.markdown('<div class="big-input">', unsafe_allow_html=True)
-    st.session_state['cost_total_h'] = st.number_input("Costo Total Mensual Harvester ($)", value=float(st.session_state['cost_total_h']), step=100000.0, format="%f", on_change=save_config)
+    st.session_state['cost_total_h'] = st.number_input("Costo Harvester ($)", value=float(st.session_state['cost_total_h']), step=100000.0, format="%f", on_change=save_config, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
-    st.info(f"Costo por Hora Calculado: {fmt_money(tot_h_dir / (h_dias*h_hours) if (h_dias*h_hours)>0 else 0)}")
+    st.caption(f"Costo por Hora Calculado: {fmt_money(tot_h_dir / (h_dias*h_hours) if (h_dias*h_hours)>0 else 0)}")
 
 with tab_f:
+    st.markdown("### Ingrese el Costo Total Mensual")
     st.markdown('<div class="big-input">', unsafe_allow_html=True)
-    st.session_state['cost_total_f'] = st.number_input("Costo Total Mensual Forwarder ($)", value=float(st.session_state['cost_total_f']), step=100000.0, format="%f", on_change=save_config)
+    st.session_state['cost_total_f'] = st.number_input("Costo Forwarder ($)", value=float(st.session_state['cost_total_f']), step=100000.0, format="%f", on_change=save_config, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
-    st.info(f"Costo por Hora Calculado: {fmt_money(tot_f_dir / (f_dias*f_hours) if (f_dias*f_hours)>0 else 0)}")
+    st.caption(f"Costo por Hora Calculado: {fmt_money(tot_f_dir / (f_dias*f_hours) if (f_dias*f_hours)>0 else 0)}")
 
 with tab_ind:
+    st.markdown("### Ingrese Total Gastos Indirectos")
     st.markdown('<div class="big-input">', unsafe_allow_html=True)
-    st.session_state['cost_total_ind'] = st.number_input("Total Gastos Indirectos Mensual ($)", value=float(st.session_state['cost_total_ind']), step=100000.0, format="%f", on_change=save_config)
+    st.session_state['cost_total_ind'] = st.number_input("Indirectos ($)", value=float(st.session_state['cost_total_ind']), step=100000.0, format="%f", on_change=save_config, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
     st.info("Este monto se reparte entre H y F según el % definido en la barra lateral.")
