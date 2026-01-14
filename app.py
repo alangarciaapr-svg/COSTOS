@@ -51,7 +51,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v28_stable_calc.json'
+CONFIG_FILE = 'forest_config_v29_stable.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -249,7 +249,8 @@ def load_config():
 def save_config():
     keys = ["uf_manual", "fuel_price", "h_days", "h_hours", "f_days", "f_hours", 
             "df_harvester", "df_forwarder", "df_rrhh", "df_flota", 
-            "alloc_pct", "price_h", "price_f", "conv_factor", "target_company_margin"]
+            "alloc_pct", "price_h", "price_f", "conv_factor", "target_company_margin",
+            "prod_h_m3", "prod_f_m3"] # Guardamos la producción también
     state_to_save = {}
     for k in keys:
         if k in st.session_state:
@@ -280,7 +281,6 @@ init_key('h_days', 28)
 init_key('h_hours', 10.0)
 init_key('f_days', 28)
 init_key('f_hours', 10.0)
-# INPUTS PERSISTENTES (SOLUCION ERROR PDF)
 init_key('prod_h_m3', 25.0)
 init_key('prod_f_m3', 28.0)
 
@@ -297,14 +297,14 @@ init_key('df_forwarder', pd.DataFrame([
 init_key('df_rrhh', pd.DataFrame([{"Cargo": "Jefe Faena", "Costo Empresa": 2300000}]))
 init_key('df_flota', pd.DataFrame([{"Ítem": "Camionetas", "Monto": 1600000}]))
 
-# --- 5. CÁLCULO CENTRAL (EJECUTADO SIEMPRE ANTES DE LA UI) ---
-# 1. Recuperar parametros
+# --- 5. CÁLCULO CENTRAL (SOLUCION DEL ERROR) ---
+# Ejecutamos los cálculos ANTES de renderizar las pestañas para que las variables existan
 h_dias = int(st.session_state['h_days'])
 h_hours = float(st.session_state['h_hours'])
 f_dias = int(st.session_state['f_days'])
 f_hours = float(st.session_state['f_hours'])
 
-# 2. Costos Base
+# Costos
 tot_h_dir, tot_f_dir, tot_ind = calculate_system_costs(
     st.session_state['df_harvester'], st.session_state['df_forwarder'], 
     st.session_state['df_rrhh'], st.session_state['df_flota'],
@@ -312,52 +312,53 @@ tot_h_dir, tot_f_dir, tot_ind = calculate_system_costs(
     st.session_state.get('uf_manual', 0), st.session_state['fuel_price']
 )
 
-# 3. Distribución
-cost_h_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
-cost_f_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
-cost_total_mes = cost_h_mes + cost_f_mes
+# Costo Mensual Total
+cost_h_total_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
+cost_f_total_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
+cost_total_mes = cost_h_total_mes + cost_f_total_mes
 
-# 4. Datos de Producción (Desde Session State para persistencia)
+# Producción
 mr_h_hr = st.session_state['prod_h_m3'] / st.session_state['conv_factor']
 mr_f_hr = st.session_state['prod_f_m3'] / st.session_state['conv_factor']
 
-# 5. Cálculos de Ingresos y Utilidad
-# Harvester
+# Ingresos y Utilidad Harvester
 inc_h_hr = mr_h_hr * st.session_state['price_h']
 inc_h_day = inc_h_hr * h_hours
 inc_h_mes = inc_h_day * h_dias
-cost_h_hr = cost_h_mes / (h_dias * h_hours) if (h_dias*h_hours) > 0 else 0
-prof_h_mes = inc_h_mes - cost_h_mes
+cost_h_hr = cost_h_total_mes / (h_dias * h_hours) if (h_dias*h_hours) > 0 else 0
+prof_h_mes = inc_h_mes - cost_h_total_mes
+margin_h = (prof_h_mes / inc_h_mes * 100) if inc_h_mes > 0 else 0
 
-# Forwarder
+# Ingresos y Utilidad Forwarder
 inc_f_hr = mr_f_hr * st.session_state['price_f']
 inc_f_day = inc_f_hr * f_hours
 inc_f_mes = inc_f_day * f_dias
-cost_f_hr = cost_f_mes / (f_dias * f_hours) if (f_dias*f_hours) > 0 else 0
-prof_f_mes = inc_f_mes - cost_f_mes
+cost_f_hr = cost_f_total_mes / (f_dias * f_hours) if (f_dias*f_hours) > 0 else 0
+prof_f_mes = inc_f_mes - cost_f_total_mes
+margin_f = (prof_f_mes / inc_f_mes * 100) if inc_f_mes > 0 else 0
 
 # Consolidado
 inc_total = inc_h_mes + inc_f_mes
 prof_total = prof_h_mes + prof_f_mes
 margin_total = (prof_total / inc_total * 100) if inc_total > 0 else 0
 
-# 6. Empaquetar KPIs para PDF (Ahora están disponibles globalmente)
+# Empaquetado para PDF
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
     'inc_total': inc_total, 'cost_total': cost_total_mes, 'prof_total': prof_total,
     'margin_total': margin_total,
-    'inc_h_mes': inc_h_mes, 'cost_h_mes': cost_h_mes, 'prof_h_mes': prof_h_mes,
-    'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_mes, 'prof_f_mes': prof_f_mes,
-    # Desgloses
+    'inc_h_mes': inc_h_mes, 'cost_h_mes': cost_h_total_mes, 'prof_h_mes': prof_h_mes,
+    'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_total_mes, 'prof_f_mes': prof_f_mes,
+    # Desgloses Sistema
     'inc_sys_hr': inc_h_hr + inc_f_hr, 
     'cost_sys_hr': cost_h_hr + cost_f_hr,
     'prof_sys_hr': (inc_h_hr + inc_f_hr) - (cost_h_hr + cost_f_hr),
     'inc_sys_day': inc_h_day + inc_f_day,
-    'cost_sys_day': (cost_h_mes/h_dias if h_dias>0 else 0) + (cost_f_mes/f_dias if f_dias>0 else 0),
-    'prof_sys_day': (inc_h_day + inc_f_day) - ((cost_h_mes/h_dias if h_dias>0 else 0) + (cost_f_mes/f_dias if f_dias>0 else 0))
+    'cost_sys_day': (cost_h_total_mes/h_dias if h_dias>0 else 0) + (cost_f_total_mes/f_dias if f_dias>0 else 0),
+    'prof_sys_day': (inc_h_day + inc_f_day) - ((cost_h_total_mes/h_dias if h_dias>0 else 0) + (cost_f_total_mes/f_dias if f_dias>0 else 0))
 }
 
-# --- 6. INTERFAZ VISUAL ---
+# --- 6. INTERFAZ ---
 st.title("🌲 Sistema de Control de Gestión Forestal")
 
 tab_dash, tab_strat, tab_faena, tab_h, tab_f, tab_ind = st.tabs([
@@ -368,7 +369,7 @@ tab_dash, tab_strat, tab_faena, tab_h, tab_f, tab_ind = st.tabs([
 with tab_dash:
     st.subheader("1. Variables de Producción (En Terreno)")
     c1, c2, c3 = st.columns(3)
-    # Actualizamos Session State directo desde los widgets
+    # Usamos session_state para que el valor persista y sea usado por el cálculo central
     with c1:
         st.session_state['prod_h_m3'] = st.number_input("Prod. Harvester (m³/hr)", value=float(st.session_state['prod_h_m3']), step=0.5)
         st.info(f"H: {mr_h_hr:,.1f} MR/hr")
@@ -387,18 +388,15 @@ with tab_dash:
         fig_money = go.Figure()
         cats = ['Harvester', 'Forwarder', 'Total']
         fig_money.add_trace(go.Bar(name='Venta', x=cats, y=[inc_h_mes, inc_f_mes, inc_total], marker_color='#3b82f6', texttemplate='$%{y:,.0f}'))
-        fig_money.add_trace(go.Bar(name='Costo', x=cats, y=[cost_h_mes, cost_f_mes, cost_total_mes], marker_color='#ef4444', texttemplate='$%{y:,.0f}'))
+        fig_money.add_trace(go.Bar(name='Costo', x=cats, y=[cost_h_total_mes, cost_f_total_mes, cost_total_mes], marker_color='#ef4444', texttemplate='$%{y:,.0f}'))
         fig_money.add_trace(go.Bar(name='Utilidad', x=cats, y=[prof_h_mes, prof_f_mes, prof_total], marker_color='#22c55e', texttemplate='$%{y:,.0f}'))
         fig_money.update_layout(barmode='group', title="Resultado $ (Mensual)", height=350, legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig_money, use_container_width=True)
         
     with c_g2:
-        # Calcular margenes indiv para grafico
-        m_h = (prof_h_mes/inc_h_mes*100) if inc_h_mes>0 else 0
-        m_f = (prof_f_mes/inc_f_mes*100) if inc_f_mes>0 else 0
         fig_pct = go.Figure()
-        cols = ['#22c55e' if m >= target_pct else '#ef4444' for m in [m_h, m_f, margin_total]]
-        fig_pct.add_trace(go.Bar(x=cats, y=[m_h, m_f, margin_total], marker_color=cols, text=[f"{m:.1f}%" for m in [m_h, m_f, margin_total]], textposition='auto'))
+        cols = ['#22c55e' if m >= target_pct else '#ef4444' for m in [margin_h, margin_f, margin_total]]
+        fig_pct.add_trace(go.Bar(x=cats, y=[margin_h, margin_f, margin_total], marker_color=cols, text=[f"{m:.1f}%" for m in [margin_h, margin_f, margin_total]], textposition='auto'))
         fig_pct.add_shape(type="line", x0=-0.5, x1=2.5, y0=target_pct, y1=target_pct, line=dict(color="black", width=2, dash="dash"))
         fig_pct.update_layout(title=f"Margen % (Meta: {target_pct}%)", height=350)
         st.plotly_chart(fig_pct, use_container_width=True)
@@ -409,16 +407,16 @@ with tab_dash:
         st.markdown("**🚜 HARVESTER**")
         df_h = pd.DataFrame([
             {"Periodo": "Hora", "Ingreso": fmt_money(inc_h_hr), "Costo": fmt_money(cost_h_hr), "Utilidad": fmt_money(inc_h_hr-cost_h_hr)},
-            {"Periodo": "Día", "Ingreso": fmt_money(inc_h_day), "Costo": fmt_money(cost_h_mes/h_dias if h_dias>0 else 0), "Utilidad": fmt_money(inc_h_day-(cost_h_mes/h_dias if h_dias>0 else 0))},
-            {"Periodo": "Mes", "Ingreso": fmt_money(inc_h_mes), "Costo": fmt_money(cost_h_mes), "Utilidad": fmt_money(prof_h_mes)},
+            {"Periodo": "Día", "Ingreso": fmt_money(inc_h_day), "Costo": fmt_money(cost_h_total_mes/h_dias if h_dias>0 else 0), "Utilidad": fmt_money(inc_h_day-(cost_h_total_mes/h_dias if h_dias>0 else 0))},
+            {"Periodo": "Mes", "Ingreso": fmt_money(inc_h_mes), "Costo": fmt_money(cost_h_total_mes), "Utilidad": fmt_money(prof_h_mes)},
         ])
         st.dataframe(df_h, use_container_width=True, hide_index=True)
     with c_t2:
         st.markdown("**🚜 FORWARDER**")
         df_f = pd.DataFrame([
             {"Periodo": "Hora", "Ingreso": fmt_money(inc_f_hr), "Costo": fmt_money(cost_f_hr), "Utilidad": fmt_money(inc_f_hr-cost_f_hr)},
-            {"Periodo": "Día", "Ingreso": fmt_money(inc_f_day), "Costo": fmt_money(cost_f_mes/f_dias if f_dias>0 else 0), "Utilidad": fmt_money(inc_f_day-(cost_f_mes/f_dias if f_dias>0 else 0))},
-            {"Periodo": "Mes", "Ingreso": fmt_money(inc_f_mes), "Costo": fmt_money(cost_f_mes), "Utilidad": fmt_money(prof_f_mes)},
+            {"Periodo": "Día", "Ingreso": fmt_money(inc_f_day), "Costo": fmt_money(cost_f_total_mes/f_dias if f_dias>0 else 0), "Utilidad": fmt_money(inc_f_day-(cost_f_total_mes/f_dias if f_dias>0 else 0))},
+            {"Periodo": "Mes", "Ingreso": fmt_money(inc_f_mes), "Costo": fmt_money(cost_f_total_mes), "Utilidad": fmt_money(prof_f_mes)},
         ])
         st.dataframe(df_f, use_container_width=True, hide_index=True)
 
@@ -467,6 +465,7 @@ with tab_strat:
     prod_cotiza = st.number_input("Prod. Estimada (m³/hr)", value=25.0)
     mr_cotiza = prod_cotiza / st.session_state['conv_factor']
     
+    # Costo hora sistema usando totales mensuales ya calculados
     cost_unit_h = (cost_h_total_mes / (h_dias*h_horas)) / mr_cotiza if mr_cotiza > 0 else 0
     cost_unit_f = (cost_f_total_mes / (f_dias*f_horas)) / mr_cotiza if mr_cotiza > 0 else 0
     
@@ -495,6 +494,7 @@ with tab_ind:
     with c1: st.session_state['df_rrhh'] = st.data_editor(st.session_state['df_rrhh'], num_rows="dynamic", column_config={"Costo Empresa": st.column_config.NumberColumn(format="$ %d")})
     with c2: st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], num_rows="dynamic", column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
     save_config()
+    st.success(f"Total Indirectos: {fmt_money(st.session_state['df_rrhh']['Costo Empresa'].sum() + st.session_state['df_flota']['Monto'].sum())}")
 
 # --- SIDEBAR (AL FINAL PARA TENER VARIABLES LISTAS) ---
 with st.sidebar:
