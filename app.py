@@ -46,13 +46,12 @@ st.markdown("""
     }
     .card-header { font-size: 1.1em; font-weight: 800; color: #334155; margin-bottom: 15px; }
     
-    /* Ocultar índices */
     thead tr th:first-child {display:none}
     tbody th {display:none}
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v27_faena_pdf.json'
+CONFIG_FILE = 'forest_config_v28_stable_calc.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -95,7 +94,6 @@ def calculate_system_costs(h_df, f_df, rrhh_df, flota_df, h_days, h_hours, f_day
 # --- 3. MOTOR PDF GRÁFICO ---
 class PDF_Pro(FPDF):
     def header(self):
-        # Header Corporativo
         self.set_fill_color(30, 41, 59)
         self.rect(0, 0, 210, 45, 'F')
         self.set_font('Arial', 'B', 16)
@@ -124,15 +122,12 @@ class PDF_Pro(FPDF):
         self.ln(5)
 
     def draw_financial_bar(self, label, income, cost, y_pos):
-        # Dibuja una barra comparativa Ingreso vs Costo
         self.set_xy(10, y_pos)
         self.set_font('Arial', 'B', 9)
         self.set_text_color(50, 50, 50)
         self.cell(30, 6, label, 0, 0)
         
-        # Cálculos de ancho
         max_width = 100
-        # Normalizar
         scale = max_width / (income * 1.2) if income > 0 else 1
         w_inc = income * scale
         w_cost = cost * scale
@@ -140,12 +135,11 @@ class PDF_Pro(FPDF):
         # Barra Ingreso (Azul)
         self.set_fill_color(59, 130, 246)
         self.rect(45, y_pos, w_inc, 5, 'F')
-        
-        # Barra Costo (Rojo - superpuesta o abajo)
+        # Barra Costo (Rojo)
         self.set_fill_color(239, 68, 68)
         self.rect(45, y_pos + 6, w_cost, 5, 'F')
         
-        # Textos valores
+        # Valores
         self.set_xy(45 + w_inc + 2, y_pos - 1)
         self.set_font('Arial', '', 8)
         self.cell(30, 6, f"Venta: {fmt_money(income)}", 0, 1)
@@ -159,10 +153,10 @@ class PDF_Pro(FPDF):
         self.set_xy(160, y_pos + 2)
         self.set_font('Arial', 'B', 10)
         if profit >= 0:
-            self.set_text_color(22, 163, 74) # Verde
+            self.set_text_color(22, 163, 74)
             self.cell(30, 6, f"+ {margin:.1f}%", 0, 0, 'R')
         else:
-            self.set_text_color(220, 38, 38) # Rojo
+            self.set_text_color(220, 38, 38)
             self.cell(30, 6, f"{margin:.1f}%", 0, 0, 'R')
 
     def kpi_grid(self, data):
@@ -179,11 +173,10 @@ def create_pro_pdf(state, kpis):
     pdf = PDF_Pro()
     pdf.add_page()
     
-    # 1. VISIÓN GENERAL (Hora / Día / Mes)
+    # 1. VISIÓN GENERAL
     pdf.chapter_title("1. RESUMEN DE COSTOS VS PRODUCCIÓN (SISTEMA)")
     pdf.ln(2)
     
-    # Encabezados tabla
     pdf.set_fill_color(226, 232, 240)
     pdf.set_font('Arial', 'B', 9)
     pdf.cell(60, 8, "Escala de Tiempo", 1, 0, 'C', 1)
@@ -192,33 +185,28 @@ def create_pro_pdf(state, kpis):
     pdf.cell(40, 8, "Utilidad", 1, 0, 'C', 1)
     pdf.ln()
     
-    # Datos General
     data_gen = [
-        ["Por Hora Operativa", fmt_money(kpis['inc_h_hr']+kpis['inc_f_hr']), fmt_money(kpis['cost_h_hr']+kpis['cost_f_hr']), fmt_money(kpis['prof_h_hr']+kpis['prof_f_hr'])],
-        ["Por Dia (Turno Completo)", fmt_money(kpis['inc_h_day']+kpis['inc_f_day']), fmt_money(kpis['cost_h_day']+kpis['cost_f_day']), fmt_money(kpis['prof_h_day']+kpis['prof_f_day'])],
+        ["Por Hora Operativa", fmt_money(kpis['inc_sys_hr']), fmt_money(kpis['cost_sys_hr']), fmt_money(kpis['prof_sys_hr'])],
+        ["Por Dia (Turno)", fmt_money(kpis['inc_sys_day']), fmt_money(kpis['cost_sys_day']), fmt_money(kpis['prof_sys_day'])],
         ["Proyeccion Mensual", fmt_money(kpis['inc_total']), fmt_money(kpis['cost_total']), fmt_money(kpis['prof_total'])]
     ]
     pdf.kpi_grid(data_gen)
     pdf.ln(5)
     
-    # Gráfico Visual General
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(0, 10, "Grafico de Rentabilidad Mensual:", 0, 1)
     pdf.draw_financial_bar("SISTEMA TOTAL", kpis['inc_total'], kpis['cost_total'], pdf.get_y())
     pdf.ln(20)
     
-    # 2. DETALLE POR MÁQUINA
+    # 2. DETALLE MAQUINAS
     pdf.chapter_title("2. DESGLOSE POR MAQUINA (Mensual)")
     pdf.ln(2)
     
-    # Harvester
     pdf.draw_financial_bar("HARVESTER", kpis['inc_h_mes'], kpis['cost_h_mes'], pdf.get_y())
     pdf.ln(15)
-    # Forwarder
     pdf.draw_financial_bar("FORWARDER", kpis['inc_f_mes'], kpis['cost_f_mes'], pdf.get_y())
     pdf.ln(15)
     
-    # Tabla detalle maquinas
     pdf.set_fill_color(226, 232, 240)
     pdf.set_font('Arial', 'B', 9)
     pdf.cell(60, 8, "Maquina", 1, 0, 'C', 1)
@@ -292,6 +280,9 @@ init_key('h_days', 28)
 init_key('h_hours', 10.0)
 init_key('f_days', 28)
 init_key('f_hours', 10.0)
+# INPUTS PERSISTENTES (SOLUCION ERROR PDF)
+init_key('prod_h_m3', 25.0)
+init_key('prod_f_m3', 28.0)
 
 # DataFrames
 init_key('df_harvester', pd.DataFrame([
@@ -306,41 +297,83 @@ init_key('df_forwarder', pd.DataFrame([
 init_key('df_rrhh', pd.DataFrame([{"Cargo": "Jefe Faena", "Costo Empresa": 2300000}]))
 init_key('df_flota', pd.DataFrame([{"Ítem": "Camionetas", "Monto": 1600000}]))
 
-# --- 5. MOTOR DE CÁLCULO ---
+# --- 5. CÁLCULO CENTRAL (EJECUTADO SIEMPRE ANTES DE LA UI) ---
+# 1. Recuperar parametros
 h_dias = int(st.session_state['h_days'])
-h_horas = float(st.session_state['h_hours'])
+h_hours = float(st.session_state['h_hours'])
 f_dias = int(st.session_state['f_days'])
-f_horas = float(st.session_state['f_hours'])
+f_hours = float(st.session_state['f_hours'])
 
+# 2. Costos Base
 tot_h_dir, tot_f_dir, tot_ind = calculate_system_costs(
     st.session_state['df_harvester'], st.session_state['df_forwarder'], 
     st.session_state['df_rrhh'], st.session_state['df_flota'],
-    h_dias, h_horas, f_dias, f_horas, 
+    h_dias, h_hours, f_dias, f_hours, 
     st.session_state.get('uf_manual', 0), st.session_state['fuel_price']
 )
 
-cost_h_total_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
-cost_f_total_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
+# 3. Distribución
+cost_h_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
+cost_f_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
+cost_total_mes = cost_h_mes + cost_f_mes
 
-# --- 6. INTERFAZ ---
+# 4. Datos de Producción (Desde Session State para persistencia)
+mr_h_hr = st.session_state['prod_h_m3'] / st.session_state['conv_factor']
+mr_f_hr = st.session_state['prod_f_m3'] / st.session_state['conv_factor']
+
+# 5. Cálculos de Ingresos y Utilidad
+# Harvester
+inc_h_hr = mr_h_hr * st.session_state['price_h']
+inc_h_day = inc_h_hr * h_hours
+inc_h_mes = inc_h_day * h_dias
+cost_h_hr = cost_h_mes / (h_dias * h_hours) if (h_dias*h_hours) > 0 else 0
+prof_h_mes = inc_h_mes - cost_h_mes
+
+# Forwarder
+inc_f_hr = mr_f_hr * st.session_state['price_f']
+inc_f_day = inc_f_hr * f_hours
+inc_f_mes = inc_f_day * f_dias
+cost_f_hr = cost_f_mes / (f_dias * f_hours) if (f_dias*f_hours) > 0 else 0
+prof_f_mes = inc_f_mes - cost_f_mes
+
+# Consolidado
+inc_total = inc_h_mes + inc_f_mes
+prof_total = prof_h_mes + prof_f_mes
+margin_total = (prof_total / inc_total * 100) if inc_total > 0 else 0
+
+# 6. Empaquetar KPIs para PDF (Ahora están disponibles globalmente)
+pdf_kpis = {
+    'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
+    'inc_total': inc_total, 'cost_total': cost_total_mes, 'prof_total': prof_total,
+    'margin_total': margin_total,
+    'inc_h_mes': inc_h_mes, 'cost_h_mes': cost_h_mes, 'prof_h_mes': prof_h_mes,
+    'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_mes, 'prof_f_mes': prof_f_mes,
+    # Desgloses
+    'inc_sys_hr': inc_h_hr + inc_f_hr, 
+    'cost_sys_hr': cost_h_hr + cost_f_hr,
+    'prof_sys_hr': (inc_h_hr + inc_f_hr) - (cost_h_hr + cost_f_hr),
+    'inc_sys_day': inc_h_day + inc_f_day,
+    'cost_sys_day': (cost_h_mes/h_dias if h_dias>0 else 0) + (cost_f_mes/f_dias if f_dias>0 else 0),
+    'prof_sys_day': (inc_h_day + inc_f_day) - ((cost_h_mes/h_dias if h_dias>0 else 0) + (cost_f_mes/f_dias if f_dias>0 else 0))
+}
+
+# --- 6. INTERFAZ VISUAL ---
 st.title("🌲 Sistema de Control de Gestión Forestal")
 
 tab_dash, tab_strat, tab_faena, tab_h, tab_f, tab_ind = st.tabs([
-    "📊 Dashboard Gerencial", "🎯 Estrategia Precios", "🧮 Cierre de Faena", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos"
+    "📊 Resultado Operacional", "🎯 Estrategia Precios", "🧮 Cierre de Faena", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos"
 ])
 
 # --- TAB DASHBOARD ---
 with tab_dash:
-    # 1. INPUTS
     st.subheader("1. Variables de Producción (En Terreno)")
     c1, c2, c3 = st.columns(3)
+    # Actualizamos Session State directo desde los widgets
     with c1:
-        prod_h_m3 = st.number_input("Prod. Harvester (m³/hr)", value=25.0, step=0.5)
-        mr_h_hr = prod_h_m3 / st.session_state['conv_factor']
+        st.session_state['prod_h_m3'] = st.number_input("Prod. Harvester (m³/hr)", value=float(st.session_state['prod_h_m3']), step=0.5)
         st.info(f"H: {mr_h_hr:,.1f} MR/hr")
     with c2:
-        prod_f_m3 = st.number_input("Prod. Forwarder (m³/hr)", value=28.0, step=0.5)
-        mr_f_hr = prod_f_m3 / st.session_state['conv_factor']
+        st.session_state['prod_f_m3'] = st.number_input("Prod. Forwarder (m³/hr)", value=float(st.session_state['prod_f_m3']), step=0.5)
         st.info(f"F: {mr_f_hr:,.1f} MR/hr")
     with c3:
         target_pct = st.session_state['target_company_margin']
@@ -348,138 +381,87 @@ with tab_dash:
 
     st.divider()
 
-    # 2. CÁLCULOS PROFUNDOS
-    inc_h_hr = mr_h_hr * st.session_state['price_h']
-    inc_h_mes = inc_h_hr * h_horas * h_dias
-    inc_h_day = inc_h_hr * h_horas
-    cost_h_mes = cost_h_total_mes
-    cost_h_day = cost_h_mes / h_dias if h_dias > 0 else 0
-    cost_h_hr = cost_h_mes / (h_dias * h_horas) if (h_dias*h_horas) > 0 else 0
-    prof_h_mes = inc_h_mes - cost_h_mes
-    margin_h = (prof_h_mes / inc_h_mes * 100) if inc_h_mes > 0 else 0
-
-    inc_f_hr = mr_f_hr * st.session_state['price_f']
-    inc_f_mes = inc_f_hr * f_horas * f_dias
-    inc_f_day = inc_f_hr * f_horas
-    cost_f_mes = cost_f_total_mes
-    cost_f_day = cost_f_mes / f_dias if f_dias > 0 else 0
-    cost_f_hr = cost_f_mes / (f_dias * f_horas) if (f_dias*f_horas) > 0 else 0
-    prof_f_mes = inc_f_mes - cost_f_mes
-    margin_f = (prof_f_mes / inc_f_mes * 100) if inc_f_mes > 0 else 0
-
-    prof_total_mes = prof_h_mes + prof_f_mes
-    inc_total_mes = inc_h_mes + inc_f_mes
-    cost_total_mes = cost_h_mes + cost_f_mes
-    margin_total = (prof_total_mes / inc_total_mes * 100) if inc_total_mes > 0 else 0
-    
-    # KPIs Pack para PDF
-    pdf_kpis = {
-        'mr_h': mr_h_hr * h_horas * h_dias, 'mr_f': mr_f_hr * f_horas * f_dias,
-        'inc_total': inc_total_mes, 'cost_total': cost_total_mes, 'prof_total': prof_total_mes,
-        'margin_total': margin_total,
-        'inc_h': inc_h_mes, 'cost_h': cost_h_mes, 'inc_f': inc_f_mes, 'cost_f': cost_f_mes,
-        # Agregados para desglose H/D/M en PDF
-        'inc_h_hr': inc_h_hr, 'cost_h_hr': cost_h_hr, 'prof_h_hr': inc_h_hr-cost_h_hr,
-        'inc_h_day': inc_h_day, 'cost_h_day': cost_h_day, 'prof_h_day': inc_h_day-cost_h_day,
-        'inc_f_hr': inc_f_hr, 'cost_f_hr': cost_f_hr, 'prof_f_hr': inc_f_hr-cost_f_hr,
-        'inc_f_day': inc_f_day, 'cost_f_day': cost_f_day, 'prof_f_day': inc_f_day-cost_f_day,
-        'prof_h_mes': prof_h_mes, 'prof_f_mes': prof_f_mes
-    }
-
-    # 3. GRÁFICOS DE BARRA
     st.subheader("2. Análisis Visual")
     c_g1, c_g2 = st.columns(2)
-    
     with c_g1:
         fig_money = go.Figure()
         cats = ['Harvester', 'Forwarder', 'Total']
-        fig_money.add_trace(go.Bar(name='Venta', x=cats, y=[inc_h_mes, inc_f_mes, inc_total_mes], marker_color='#3b82f6', texttemplate='$%{y:,.0f}'))
+        fig_money.add_trace(go.Bar(name='Venta', x=cats, y=[inc_h_mes, inc_f_mes, inc_total], marker_color='#3b82f6', texttemplate='$%{y:,.0f}'))
         fig_money.add_trace(go.Bar(name='Costo', x=cats, y=[cost_h_mes, cost_f_mes, cost_total_mes], marker_color='#ef4444', texttemplate='$%{y:,.0f}'))
-        fig_money.add_trace(go.Bar(name='Utilidad', x=cats, y=[prof_h_mes, prof_f_mes, prof_total_mes], marker_color='#22c55e', texttemplate='$%{y:,.0f}'))
+        fig_money.add_trace(go.Bar(name='Utilidad', x=cats, y=[prof_h_mes, prof_f_mes, prof_total], marker_color='#22c55e', texttemplate='$%{y:,.0f}'))
         fig_money.update_layout(barmode='group', title="Resultado $ (Mensual)", height=350, legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig_money, use_container_width=True)
         
     with c_g2:
+        # Calcular margenes indiv para grafico
+        m_h = (prof_h_mes/inc_h_mes*100) if inc_h_mes>0 else 0
+        m_f = (prof_f_mes/inc_f_mes*100) if inc_f_mes>0 else 0
         fig_pct = go.Figure()
-        cols = ['#22c55e' if m >= target_pct else '#ef4444' for m in [margin_h, margin_f, margin_total]]
-        fig_pct.add_trace(go.Bar(x=cats, y=[margin_h, margin_f, margin_total], marker_color=cols, text=[f"{m:.1f}%" for m in [margin_h, margin_f, margin_total]], textposition='auto'))
+        cols = ['#22c55e' if m >= target_pct else '#ef4444' for m in [m_h, m_f, margin_total]]
+        fig_pct.add_trace(go.Bar(x=cats, y=[m_h, m_f, margin_total], marker_color=cols, text=[f"{m:.1f}%" for m in [m_h, m_f, margin_total]], textposition='auto'))
         fig_pct.add_shape(type="line", x0=-0.5, x1=2.5, y0=target_pct, y1=target_pct, line=dict(color="black", width=2, dash="dash"))
         fig_pct.update_layout(title=f"Margen % (Meta: {target_pct}%)", height=350)
         st.plotly_chart(fig_pct, use_container_width=True)
 
-    # 4. TABLAS
     st.subheader("3. Detalle por Máquina (Hora / Día / Mes)")
-    
-    def render_table(title, df):
-        st.markdown(f"**{title}**")
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
     c_t1, c_t2 = st.columns(2)
     with c_t1:
+        st.markdown("**🚜 HARVESTER**")
         df_h = pd.DataFrame([
             {"Periodo": "Hora", "Ingreso": fmt_money(inc_h_hr), "Costo": fmt_money(cost_h_hr), "Utilidad": fmt_money(inc_h_hr-cost_h_hr)},
-            {"Periodo": "Día", "Ingreso": fmt_money(inc_h_day), "Costo": fmt_money(cost_h_day), "Utilidad": fmt_money(inc_h_day-cost_h_day)},
+            {"Periodo": "Día", "Ingreso": fmt_money(inc_h_day), "Costo": fmt_money(cost_h_mes/h_dias if h_dias>0 else 0), "Utilidad": fmt_money(inc_h_day-(cost_h_mes/h_dias if h_dias>0 else 0))},
             {"Periodo": "Mes", "Ingreso": fmt_money(inc_h_mes), "Costo": fmt_money(cost_h_mes), "Utilidad": fmt_money(prof_h_mes)},
         ])
-        render_table("🚜 HARVESTER", df_h)
-        
+        st.dataframe(df_h, use_container_width=True, hide_index=True)
     with c_t2:
+        st.markdown("**🚜 FORWARDER**")
         df_f = pd.DataFrame([
             {"Periodo": "Hora", "Ingreso": fmt_money(inc_f_hr), "Costo": fmt_money(cost_f_hr), "Utilidad": fmt_money(inc_f_hr-cost_f_hr)},
-            {"Periodo": "Día", "Ingreso": fmt_money(inc_f_day), "Costo": fmt_money(cost_f_day), "Utilidad": fmt_money(inc_f_day-cost_f_day)},
+            {"Periodo": "Día", "Ingreso": fmt_money(inc_f_day), "Costo": fmt_money(cost_f_mes/f_dias if f_dias>0 else 0), "Utilidad": fmt_money(inc_f_day-(cost_f_mes/f_dias if f_dias>0 else 0))},
             {"Periodo": "Mes", "Ingreso": fmt_money(inc_f_mes), "Costo": fmt_money(cost_f_mes), "Utilidad": fmt_money(prof_f_mes)},
         ])
-        render_table("🚜 FORWARDER", df_f)
+        st.dataframe(df_f, use_container_width=True, hide_index=True)
 
-# --- TAB FAENA (NUEVA) ---
+# --- TAB FAENA ---
 with tab_faena:
     st.header("🧮 Cierre de Faena (Cálculo por Lote)")
-    st.markdown("Ingresa el **Total de Metros Ruma (MR)** producidos en una faena específica para calcular la rentabilidad exacta de ese lote, basándose en la productividad horaria de cada máquina.")
-    
-    mr_lote = st.number_input("Total MR Faena/Lote", value=1000.0, step=100.0)
+    st.markdown("Ingresa el **Total de Metros Ruma (MR)** de una faena para ver su resultado específico.")
+    mr_lote = st.number_input("Total MR Faena", value=1000.0, step=100.0)
     
     if mr_lote > 0:
         st.divider()
-        # Cálculos Faena
-        # 1. Horas requeridas para hacer ese lote
         hrs_req_h = mr_lote / mr_h_hr if mr_h_hr > 0 else 0
         hrs_req_f = mr_lote / mr_f_hr if mr_f_hr > 0 else 0
         
-        # 2. Ingresos del Lote
         inc_lote_h = mr_lote * st.session_state['price_h']
         inc_lote_f = mr_lote * st.session_state['price_f']
         
-        # 3. Costos del Lote (Horas Requeridas * Costo Hora Sistema)
         cost_lote_h = hrs_req_h * cost_h_hr
         cost_lote_f = hrs_req_f * cost_f_hr
         
-        # 4. Resultados
         prof_lote_h = inc_lote_h - cost_lote_h
         prof_lote_f = inc_lote_f - cost_lote_f
         
         c_res1, c_res2 = st.columns(2)
-        
         with c_res1:
             st.markdown(f"""
             <div class="faena-card">
                 <div class="card-header">🚜 Harvester</div>
-                <div>Horas Trabajadas: <b>{hrs_req_h:,.1f} hrs</b></div>
-                <div style="margin-top:10px; font-size:1.1em">Generado: <span style="color:#16a34a; font-weight:bold">{fmt_money(prof_lote_h)}</span></div>
+                <div>Horas Requeridas: <b>{hrs_req_h:,.1f} hrs</b></div>
+                <div style="margin-top:10px; font-size:1.1em">Utilidad: <span style="color:#16a34a; font-weight:bold">{fmt_money(prof_lote_h)}</span></div>
             </div>
             """, unsafe_allow_html=True)
-            
         with c_res2:
             st.markdown(f"""
             <div class="faena-card">
                 <div class="card-header">🚜 Forwarder</div>
-                <div>Horas Trabajadas: <b>{hrs_req_f:,.1f} hrs</b></div>
-                <div style="margin-top:10px; font-size:1.1em">Generado: <span style="color:#16a34a; font-weight:bold">{fmt_money(prof_lote_f)}</span></div>
+                <div>Horas Requeridas: <b>{hrs_req_f:,.1f} hrs</b></div>
+                <div style="margin-top:10px; font-size:1.1em">Utilidad: <span style="color:#16a34a; font-weight:bold">{fmt_money(prof_lote_f)}</span></div>
             </div>
             """, unsafe_allow_html=True)
-            
-        st.success(f"💰 **UTILIDAD TOTAL DEL LOTE ({mr_lote:,.0f} MR): {fmt_money(prof_lote_h + prof_lote_f)}**")
+        st.success(f"💰 **UTILIDAD TOTAL DEL LOTE: {fmt_money(prof_lote_h + prof_lote_f)}**")
 
-# --- OTRAS TABS ---
+# --- TAB STRAT ---
 with tab_strat:
     st.subheader("Simulador de Tarifas")
     prod_cotiza = st.number_input("Prod. Estimada (m³/hr)", value=25.0)
@@ -495,15 +477,18 @@ with tab_strat:
     c1.metric("Tarifa Sugerida (30%)", fmt_money(p30))
     c2.metric("Tarifa Sugerida (35%)", fmt_money(p35))
 
+# --- TABS EDICIÓN ---
 with tab_h:
     edited_h = st.data_editor(st.session_state['df_harvester'], num_rows="dynamic", use_container_width=True, column_config={"Valor": st.column_config.NumberColumn(format="$ %d")})
     st.session_state['df_harvester'] = edited_h
     save_config()
+    st.info(f"Total Directo: {fmt_money(calculate_single_machine_monthly_cost(edited_h, h_dias, h_horas, st.session_state.get('uf_manual',0), st.session_state['fuel_price'], 'H'))}")
 
 with tab_f:
     edited_f = st.data_editor(st.session_state['df_forwarder'], num_rows="dynamic", use_container_width=True, column_config={"Valor": st.column_config.NumberColumn(format="$ %d")})
     st.session_state['df_forwarder'] = edited_f
     save_config()
+    st.info(f"Total Directo: {fmt_money(calculate_single_machine_monthly_cost(edited_f, f_dias, f_horas, st.session_state.get('uf_manual',0), st.session_state['fuel_price'], 'F'))}")
 
 with tab_ind:
     c1, c2 = st.columns(2)
@@ -511,12 +496,14 @@ with tab_ind:
     with c2: st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], num_rows="dynamic", column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
     save_config()
 
-# --- SIDEBAR PDF ---
+# --- SIDEBAR (AL FINAL PARA TENER VARIABLES LISTAS) ---
 with st.sidebar:
     st.markdown("## ⚙️ Panel de Control")
+    
     try:
+        # Se genera el PDF usando los KPIs ya calculados arriba
         pdf_bytes = create_pro_pdf(st.session_state, pdf_kpis)
-        st.download_button("📄 Informe PDF Gráfico", data=pdf_bytes, file_name="Informe_Gestion_Visual.pdf", mime='application/pdf', type="primary")
+        st.download_button("📄 Informe Ejecutivo (PDF)", data=pdf_bytes, file_name=f"Informe_Galvez_Genova_{datetime.now().strftime('%Y%m%d')}.pdf", mime='application/pdf', type="primary")
     except Exception as e: st.error(f"Error PDF: {e}")
     
     if st.button("♻️ Reset"):
@@ -539,4 +526,5 @@ with st.sidebar:
     with st.expander("📏 Conversión"):
         st.session_state['conv_factor'] = st.number_input("Factor", value=float(st.session_state['conv_factor']), on_change=save_config)
         st.session_state['alloc_pct'] = st.slider("% Ind. Harvester", 0, 100, int(st.session_state['alloc_pct']*100)) / 100.0
+        st.session_state['target_company_margin'] = st.slider("Meta %", 0, 60, int(st.session_state['target_company_margin']), on_change=save_config)
         save_config()
