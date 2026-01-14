@@ -173,4 +173,175 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-    with st.expander("💰
+    with st.expander("💰 Mercado", expanded=True):
+        use_api = st.checkbox("UF Auto", value=True)
+        uf_api, _ = get_uf_api()
+        val_uf = uf_api if (use_api and uf_api) else st.session_state['uf_manual']
+        
+        curr_uf = st.number_input("Valor UF", value=float(val_uf), disabled=bool(use_api and uf_api))
+        if curr_uf != st.session_state['uf_manual']:
+            st.session_state['uf_manual'] = curr_uf
+            save_config()
+        
+        st.session_state['fuel_price'] = st.number_input("Diesel ($/Lt)", value=float(st.session_state['fuel_price']), on_change=save_config)
+
+    with st.expander("💵 Tarifas por Máquina", expanded=True):
+        st.info("Define cuánto cobras por el servicio de cada máquina.")
+        st.session_state['price_h'] = st.number_input("Tarifa Harvester ($/MR)", value=float(st.session_state['price_h']), on_change=save_config)
+        st.session_state['price_f'] = st.number_input("Tarifa Forwarder ($/MR)", value=float(st.session_state['price_f']), on_change=save_config)
+        st.caption(f"**Sistema Total:** {fmt_money(st.session_state['price_h'] + st.session_state['price_f'])} / MR")
+
+    with st.expander("📏 Conversión y Distribución"):
+        st.session_state['conv_factor'] = st.number_input("Factor m³/MR", value=float(st.session_state['conv_factor']), step=0.01, on_change=save_config)
+        alloc = st.slider("% Indirectos a Harvester", 0, 100, int(st.session_state['alloc_pct']*100)) / 100.0
+        if alloc != st.session_state['alloc_pct']:
+            st.session_state['alloc_pct'] = alloc
+            save_config()
+
+# --- 5. CÁLCULOS GLOBALES ---
+tot_h_dir, tot_f_dir, tot_ind, hrs_h, hrs_f = calculate_system_costs(
+    st.session_state['df_harvester'], st.session_state['df_forwarder'], 
+    st.session_state['df_rrhh'], st.session_state['df_flota'],
+    int(st.session_state['h_days']), float(st.session_state['h_hours']), 
+    int(st.session_state['f_days']), float(st.session_state['f_hours']), 
+    curr_uf, st.session_state['fuel_price']
+)
+
+# Asignación de Indirectos
+ind_h = tot_ind * st.session_state['alloc_pct']
+ind_f = tot_ind * (1 - st.session_state['alloc_pct'])
+
+# Costos Mensuales Totales por Máquina
+cost_total_h_mes = tot_h_dir + ind_h
+cost_total_f_mes = tot_f_dir + ind_f
+
+# --- 6. INTERFAZ ---
+st.title("🌲 Resultado Operacional por Máquina")
+
+tab_dash, tab_h, tab_f, tab_ind = st.tabs(["📊 Dashboard Gerencial", "🚜 Harvester", "🚜 Forwarder", "👷 Indirectos"])
+
+# --- TAB DASHBOARD ---
+with tab_dash:
+    # 1. Inputs Producción
+    st.markdown("### 1. Ingreso de Producción Real")
+    c1, c2 = st.columns(2)
+    with c1:
+        prod_h_hr = st.number_input("Productividad Harvester (m³/hr)", value=25.0, step=0.5)
+        mr_h_hr = prod_h_hr / st.session_state['conv_factor']
+        st.caption(f"Equivale a: **{mr_h_hr:,.1f} MR/hr**")
+    with c2:
+        prod_f_hr = st.number_input("Productividad Forwarder (m³/hr)", value=28.0, step=0.5)
+        mr_f_hr = prod_f_hr / st.session_state['conv_factor']
+        st.caption(f"Equivale a: **{mr_f_hr:,.1f} MR/hr**")
+
+    # 2. Cálculos de Negocio
+    # Proyección Mensual (Prod Hora * Horas Mes Configuradas)
+    mr_h_mes = mr_h_hr * hrs_h
+    mr_f_mes = mr_f_hr * hrs_f
+    
+    # Ingresos (Producción MR * Tarifa Especifica)
+    ingreso_h_mes = mr_h_mes * st.session_state['price_h']
+    ingreso_f_mes = mr_f_mes * st.session_state['price_f']
+    
+    # Utilidad
+    utilidad_h_mes = ingreso_h_mes - cost_total_h_mes
+    utilidad_f_mes = ingreso_f_mes - cost_total_f_mes
+    
+    # Márgenes
+    margen_h = (utilidad_h_mes / ingreso_h_mes * 100) if ingreso_h_mes > 0 else 0
+    margen_f = (utilidad_f_mes / ingreso_f_mes * 100) if ingreso_f_mes > 0 else 0
+
+    st.divider()
+    st.markdown("### 2. Estado de Resultados por Máquina")
+
+    # 3. VISUALIZACIÓN SPLIT (Harvester vs Forwarder)
+    col_h, col_f = st.columns(2)
+    
+    def render_machine_card(title, prod_mr, inc, cost, prof, margin, style_class):
+        color_prof = "#16a34a" if prof >= 0 else "#dc2626"
+        return f"""
+        <div class="machine-card {style_class}">
+            <div class="card-title">{title}</div>
+            <div class="res-row"><span class="res-label">Producción Mes</span><span class="res-val">{prod_mr:,.0f} MR</span></div>
+            <div class="res-row"><span class="res-label">Ingresos</span><span class="res-val">{fmt_money(inc)}</span></div>
+            <div class="res-row"><span class="res-label">Costo Total</span><span class="res-val" style="color:#ef4444">{fmt_money(cost)}</span></div>
+            <div class="{ 'res-net' if prof >=0 else 'res-loss' }">{fmt_money(prof)}</div>
+            <div style="text-align:right; font-size:0.9em; color:{color_prof}">Margen: {margin:.1f}%</div>
+        </div>
+        """
+
+    with col_h:
+        st.markdown(render_machine_card("🚜 HARVESTER", mr_h_mes, ingreso_h_mes, cost_total_h_mes, utilidad_h_mes, margen_h, "card-h"), unsafe_allow_html=True)
+        # Desglose H
+        with st.expander("Ver detalle Harvester (Hr/Sem/Mes)"):
+            st.dataframe(pd.DataFrame({
+                "Periodo": ["Hora", "Semana", "Mes"],
+                "Generado ($)": [fmt_money(ingreso_h_mes/hrs_h), fmt_money(ingreso_h_mes/4), fmt_money(ingreso_h_mes)],
+                "Costo ($)": [fmt_money(cost_total_h_mes/hrs_h), fmt_money(cost_total_h_mes/4), fmt_money(cost_total_h_mes)],
+                "Utilidad ($)": [fmt_money(utilidad_h_mes/hrs_h), fmt_money(utilidad_h_mes/4), fmt_money(utilidad_h_mes)]
+            }), hide_index=True)
+
+    with col_f:
+        st.markdown(render_machine_card("🚜 FORWARDER", mr_f_mes, ingreso_f_mes, cost_total_f_mes, utilidad_f_mes, margen_f, "card-f"), unsafe_allow_html=True)
+        # Desglose F
+        with st.expander("Ver detalle Forwarder (Hr/Sem/Mes)"):
+            st.dataframe(pd.DataFrame({
+                "Periodo": ["Hora", "Semana", "Mes"],
+                "Generado ($)": [fmt_money(ingreso_f_mes/hrs_f), fmt_money(ingreso_f_mes/4), fmt_money(ingreso_f_mes)],
+                "Costo ($)": [fmt_money(cost_total_f_mes/hrs_f), fmt_money(cost_total_f_mes/4), fmt_money(cost_total_f_mes)],
+                "Utilidad ($)": [fmt_money(utilidad_f_mes/hrs_f), fmt_money(utilidad_f_mes/4), fmt_money(utilidad_f_mes)]
+            }), hide_index=True)
+
+    # 4. GRÁFICO COMPARATIVO
+    st.subheader("Comparativa Visual de Rentabilidad")
+    
+    # Preparar datos para gráfico
+    data_plot = [
+        {"Máquina": "Harvester", "Tipo": "Ingreso", "Monto": ingreso_h_mes},
+        {"Máquina": "Harvester", "Tipo": "Costo", "Monto": cost_total_h_mes},
+        {"Máquina": "Forwarder", "Tipo": "Ingreso", "Monto": ingreso_f_mes},
+        {"Máquina": "Forwarder", "Tipo": "Costo", "Monto": cost_total_f_mes},
+    ]
+    
+    fig = px.bar(data_plot, x="Máquina", y="Monto", color="Tipo", barmode="group",
+                 color_discrete_map={"Ingreso": "#3b82f6", "Costo": "#ef4444"}, text_auto='.2s')
+    
+    fig.add_trace(go.Scatter(
+        x=["Harvester", "Forwarder"], y=[ingreso_h_mes, ingreso_f_mes],
+        text=[f"{margen_h:.1f}% Margen", f"{margen_f:.1f}% Margen"],
+        mode="text", textposition="top center", name="Margen %"
+    ))
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+# --- TABS EDICIÓN ---
+with tab_h:
+    st.header("Costos Harvester")
+    edited_h = st.data_editor(st.session_state['df_harvester'], num_rows="dynamic", use_container_width=True,
+                              column_config={"Valor": st.column_config.NumberColumn(format="$ %d")})
+    st.session_state['df_harvester'] = edited_h
+    save_config()
+    # Total Vivo
+    live_h = calculate_single_machine_monthly_cost(edited_h, int(st.session_state['h_days']), float(st.session_state['h_hours']), curr_uf, st.session_state['fuel_price'], 'H')
+    st.success(f"💰 Costo Mensual Directo H: **{fmt_money(live_h)}**")
+
+with tab_f:
+    st.header("Costos Forwarder")
+    edited_f = st.data_editor(st.session_state['df_forwarder'], num_rows="dynamic", use_container_width=True,
+                              column_config={"Valor": st.column_config.NumberColumn(format="$ %d")})
+    st.session_state['df_forwarder'] = edited_f
+    save_config()
+    live_f = calculate_single_machine_monthly_cost(edited_f, int(st.session_state['f_days']), float(st.session_state['f_hours']), curr_uf, st.session_state['fuel_price'], 'F')
+    st.success(f"💰 Costo Mensual Directo F: **{fmt_money(live_f)}**")
+
+with tab_ind:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("RRHH")
+        st.session_state['df_rrhh'] = st.data_editor(st.session_state['df_rrhh'], num_rows="dynamic", column_config={"Costo Empresa": st.column_config.NumberColumn(format="$ %d")})
+    with c2:
+        st.subheader("Flota y Varios")
+        st.session_state['df_flota'] = st.data_editor(st.session_state['df_flota'], num_rows="dynamic", column_config={"Monto": st.column_config.NumberColumn(format="$ %d")})
+    save_config()
+    live_ind = st.session_state['df_rrhh']['Costo Empresa'].sum() + st.session_state['df_flota']['Monto'].sum()
+    st.info(f"💰 Total Indirectos Mensual: **{fmt_money(live_ind)}**")
