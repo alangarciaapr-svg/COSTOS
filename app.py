@@ -62,19 +62,6 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
-    /* Ajuste de Texto para que no se corten cifras */
-    .sim-val {
-        font-size: 1.1em;
-        font-weight: 700;
-        color: #0f172a;
-    }
-    .sim-total {
-        font-size: 1.4em; 
-        font-weight: 900;
-        text-align: center;
-        margin-top: 5px;
-    }
-    
     /* --- SIDEBAR BLANCO PROFESIONAL --- */
     section[data-testid="stSidebar"] {
         background-color: #ffffff;
@@ -96,7 +83,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v36_hourly_fix.json'
+CONFIG_FILE = 'forest_config_v37_indirect_dist.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -248,9 +235,10 @@ def load_config():
     return {}
 
 def save_config():
+    # Incluimos los nuevos campos de porcentaje individual
     keys = ["h_days", "h_hours", "f_days", "f_hours", 
             "cost_total_h", "cost_total_f", "cost_total_ind",
-            "alloc_pct", "price_h", "price_f", "conv_factor", "target_company_margin",
+            "pct_ind_h", "pct_ind_f", "price_h", "price_f", "conv_factor", "target_company_margin",
             "prod_h_m3", "prod_f_m3"]
     state_to_save = {}
     for k in keys:
@@ -271,7 +259,8 @@ def init_key(key, default_value):
 
 init_key('price_h', 6500.0)
 init_key('price_f', 5000.0)
-init_key('alloc_pct', 0.5)
+init_key('pct_ind_h', 50.0) # Por defecto 50%
+init_key('pct_ind_f', 50.0) # Por defecto 50%
 init_key('conv_factor', 2.44)
 init_key('target_company_margin', 30.0)
 init_key('h_days', 28)
@@ -284,9 +273,7 @@ init_key('cost_total_h', 15000000.0)
 init_key('cost_total_f', 12000000.0)
 init_key('cost_total_ind', 5000000.0)
 
-st.title("COSTOS / PRODUCCION SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.")
-
-# --- 5. RENDERIZADO DE INPUTS (ANTES DE CALCULOS) ---
+# --- 5. RENDERIZADO DE INPUTS ---
 with st.sidebar:
     st.markdown("### ⚙️ PANEL DE GESTIÓN")
     
@@ -304,7 +291,13 @@ with st.sidebar:
 
     with st.expander("📏 Técnica y Objetivos", expanded=False):
         st.session_state['conv_factor'] = st.number_input("Factor Conv. (m³/MR)", value=float(st.session_state['conv_factor']))
-        st.session_state['alloc_pct'] = st.slider("% Ind. Harvester", 0, 100, int(st.session_state['alloc_pct']*100)) / 100.0
+        
+        st.markdown("---")
+        st.markdown("**Distribución Indirectos (%)**")
+        c_pct1, c_pct2 = st.columns(2)
+        st.session_state['pct_ind_h'] = c_pct1.number_input("% a Harv", value=float(st.session_state['pct_ind_h']))
+        st.session_state['pct_ind_f'] = c_pct2.number_input("% a Fwd", value=float(st.session_state['pct_ind_f']))
+        
         st.session_state['target_company_margin'] = st.slider("Meta Margen (%)", 0, 60, int(st.session_state['target_company_margin']))
 
     st.markdown("---")
@@ -318,7 +311,7 @@ tab_dash, tab_strat, tab_faena, tab_h, tab_f, tab_ind = st.tabs([
     "📊 Dashboard Gerencial", "🎯 Simulador Precios", "🧮 Cierre de Faena", "🚜 COSTOS HARVESTER", "🚜 COSTOS FORWARDER", "👷 COSTOS INDIRECTOS"
 ])
 
-# --- INPUTS COSTOS (RECUPERADOS VISIBLES) ---
+# --- INPUTS COSTOS ---
 with tab_h:
     st.markdown("### Ingrese el Costo Total Mensual")
     st.markdown('<div class="big-input">', unsafe_allow_html=True)
@@ -332,7 +325,7 @@ with tab_f:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_ind:
-    st.markdown("### Ingrese Total Gastos Indirectos (Base 30 Días)")
+    st.markdown("### Ingrese Total Gastos Indirectos (Mensual)")
     st.markdown('<div class="big-input">', unsafe_allow_html=True)
     st.session_state['cost_total_ind'] = st.number_input("Indirectos ($)", value=float(st.session_state['cost_total_ind']), step=100000.0, format="%f", label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -351,20 +344,23 @@ tot_ind = float(st.session_state['cost_total_ind'])
 # Harvester
 cost_hr_calc_h = tot_h_dir / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
 with tab_h:
-    st.info(f"ℹ️ **Costo por Hora Operativa:** {fmt_money(cost_hr_calc_h)} (Calculado con {h_dias} días x {h_hours} hrs)")
+    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_h)} (Base {h_dias} días x {h_hours} hrs)")
 
 # Forwarder
 cost_hr_calc_f = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
 with tab_f:
-    st.info(f"ℹ️ **Costo por Hora Operativa:** {fmt_money(cost_hr_calc_f)} (Calculado con {f_dias} días x {f_hours} hrs)")
+    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_f)} (Base {f_dias} días x {f_hours} hrs)")
 
-# Indirectos
+# Indirectos (Cálculo 30 días / 24 horas)
+hourly_ind_base_24_7 = tot_ind / (30 * 24)
 with tab_ind:
-    st.info(f"ℹ️ **Costo Mensual Fijo:** {fmt_money(tot_ind)} (Este monto se distribuye entre H y F para los cálculos de utilidad)")
+    st.info(f"ℹ️ **Valor Hora Cronológica (Base 30 días / 24 hrs):** {fmt_money(hourly_ind_base_24_7)}")
+    st.caption(f"Distribución Actual: {st.session_state['pct_ind_h']}% a Harvester | {st.session_state['pct_ind_f']}% a Forwarder")
 
-# Distribución
-cost_h_total_mes = tot_h_dir + (tot_ind * st.session_state['alloc_pct'])
-cost_f_total_mes = tot_f_dir + (tot_ind * (1 - st.session_state['alloc_pct']))
+# Distribución Total Mensual (Para P&L)
+# Se distribuye el monto total mensual según el % definido
+cost_h_total_mes = tot_h_dir + (tot_ind * (st.session_state['pct_ind_h'] / 100))
+cost_f_total_mes = tot_f_dir + (tot_ind * (st.session_state['pct_ind_f'] / 100))
 cost_total_mes = cost_h_total_mes + cost_f_total_mes
 
 # Producción
@@ -481,7 +477,7 @@ with tab_strat:
     equiv_m3 = sim_mr * sim_factor
     st.info(f"Equivale a una producción de: **{equiv_m3:,.1f} m³/Hr**")
     
-    # Costo por MR basado en el input de productividad
+    # Costo por MR
     hourly_cost_h_sys = cost_h_total_mes / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
     hourly_cost_f_sys = cost_f_total_mes / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
     
@@ -558,7 +554,7 @@ with tab_faena:
             """, unsafe_allow_html=True)
         st.success(f"💰 **UTILIDAD TOTAL DEL LOTE: {fmt_money(prof_lote_h + prof_lote_f)}**")
 
-# --- GENERACIÓN PDF (Al final) ---
+# --- GENERACIÓN PDF ---
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
     'inc_total': inc_total, 'cost_total': cost_total_mes, 'prof_total': prof_total,
