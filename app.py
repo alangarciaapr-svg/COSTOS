@@ -14,7 +14,7 @@ try:
 except ImportError:
     st.error("⚠️ Librería fpdf no instalada. Agrega 'fpdf' a requirements.txt")
 
-# Nombre del archivo de logo esperado (debe estar en la misma carpeta)
+# Nombre del archivo de logo esperado
 LOGO_FILE = "logo.png" 
 
 # --- 1. CONFIGURACIÓN Y ESTILO ---
@@ -104,96 +104,120 @@ def fmt_money(x):
     if x is None: return "$ 0"
     return f"$ {x:,.0f}".replace(",", ".")
 
-# --- 3. MOTOR PDF GRÁFICO (CON LOGO Y DATOS REALES) ---
+# --- 3. MOTOR PDF GRÁFICO (CENTRADO Y PREMIUM) ---
 class PDF_Pro(FPDF):
     def header(self):
-        # Fondo Azul Corporativo
-        self.set_fill_color(30, 58, 138) # #1e3a8a
-        self.rect(0, 0, 210, 40, 'F') # Aumentado un poco la altura para el logo
+        # FONDO NEUTRO (Gris muy claro/Blanco) para que el logo resalte
+        self.set_fill_color(248, 250, 252) # Slate 50
+        self.rect(0, 0, 210, 55, 'F') # Cabecera más alta para dar aire
         
-        # LOGO EMPRESA (Si existe)
+        y_cursor = 10
+        
+        # LOGO EMPRESA (Centrado y Grande)
         if os.path.exists(LOGO_FILE):
-            # Insertar imagen (x, y, w). Ajusta 'w' según el tamaño de tu logo.
+            # Calculamos posición X para centrar una imagen de ancho 50 (aprox)
+            img_w = 50 
+            x_img = (210 - img_w) / 2
             try:
-                self.image(LOGO_FILE, x=10, y=5, w=30)
-                title_x_offset = 45 # Desplazar título si hay logo
+                self.image(LOGO_FILE, x=x_img, y=y_cursor, w=img_w)
+                y_cursor += 25 # Bajamos el cursor después del logo
             except:
-                title_x_offset = 10
-        else:
-            title_x_offset = 10
-
-        # Título
+                pass
+        
+        # TÍTULO PRINCIPAL
+        self.set_y(y_cursor)
         self.set_font('Arial', 'B', 14) 
-        self.set_text_color(255, 255, 255)
-        self.set_xy(title_x_offset, 12)
-        self.cell(0, 10, 'SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.', 0, 1, 'L')
+        self.set_text_color(30, 41, 59) # Slate Dark
+        self.cell(0, 10, 'SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.', 0, 1, 'C')
         
-        # Subtítulo
+        # SUBTÍTULO
         self.set_font('Arial', '', 10)
-        self.set_text_color(203, 213, 225)
-        self.set_xy(title_x_offset, 19)
-        self.cell(0, 5, 'REPORTE INTEGRAL: COSTOS, TARIFAS Y RESULTADOS', 0, 1, 'L')
+        self.set_text_color(100, 116, 139) # Slate Grey
+        self.cell(0, 6, 'REPORTE DE GESTIÓN INTEGRAL', 0, 1, 'C')
         
-        # Fecha
-        self.set_xy(160, 15)
-        self.set_font('Arial', 'B', 10)
-        self.set_text_color(255, 255, 255)
-        self.cell(40, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
-        self.ln(25) # Espacio seguro después del header
+        # FECHA
+        self.set_font('Arial', 'B', 9)
+        self.set_text_color(30, 41, 59)
+        self.cell(0, 6, datetime.now().strftime('%d de %B, %Y').upper(), 0, 1, 'C')
+        
+        # Línea decorativa
+        self.set_draw_color(203, 213, 225)
+        self.line(20, self.get_y()+5, 190, self.get_y()+5)
+        self.ln(10) # Espacio seguro después del header
 
     def footer(self):
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
-        self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f'Pagina {self.page_no()}', 0, 0, 'C')
+        self.set_text_color(148, 163, 184)
+        self.cell(0, 10, f'Documento Confidencial - Pagina {self.page_no()}', 0, 0, 'C')
 
     def section_title(self, title):
         self.set_font('Arial', 'B', 12)
-        self.set_text_color(30, 58, 138)
-        self.cell(0, 8, title, 0, 1, 'L')
-        self.set_draw_color(30, 58, 138)
-        self.set_line_width(0.5)
-        self.line(10, self.get_y(), 200, self.get_y())
+        self.set_text_color(15, 23, 42) # Casi negro
+        # Título centrado
+        self.cell(0, 10, title.upper(), 0, 1, 'C')
+        # Pequeña línea debajo centrada
+        y = self.get_y()
+        self.set_draw_color(14, 165, 233) # Azul Sky (acento moderno)
+        self.set_line_width(0.8)
+        self.line(90, y, 120, y) # Línea corta centrada
+        self.set_line_width(0.2)
         self.ln(6)
 
-    def kp_card(self, label, value, sublabel, x, y, w=45, h=25, is_money=True):
+    def kp_card(self, label, value, sublabel, x, y, w=50, h=28, is_money=True):
+        # Dibujar tarjeta (Fondo blanco con borde suave)
         self.set_xy(x, y)
-        self.set_fill_color(248, 250, 252)
-        self.set_draw_color(203, 213, 225)
+        self.set_fill_color(255, 255, 255)
+        self.set_draw_color(226, 232, 240)
         self.rect(x, y, w, h, 'DF')
         
-        self.set_xy(x, y + 3)
+        # Etiqueta
+        self.set_xy(x, y + 4)
         self.set_font('Arial', 'B', 8)
         self.set_text_color(100, 116, 139)
         self.cell(w, 5, label, 0, 0, 'C')
         
-        self.set_xy(x, y + 9)
-        self.set_font('Arial', 'B', 11) 
+        # Valor
+        self.set_xy(x, y + 11)
+        self.set_font('Arial', 'B', 12) 
         self.set_text_color(15, 23, 42)
         val_str = fmt_money(value) if is_money else str(value)
         self.cell(w, 8, val_str, 0, 0, 'C')
         
-        self.set_xy(x, y + 17)
-        self.set_font('Arial', '', 7)
-        self.set_text_color(22, 163, 74) # Green
+        # Subtexto
+        self.set_xy(x, y + 20)
+        self.set_font('Arial', 'I', 7)
+        self.set_text_color(22, 163, 74) # Verde éxito
         self.cell(w, 5, sublabel, 0, 0, 'C')
 
     def nice_table(self, header, data, col_widths):
+        # Calcular el ancho total para centrar la tabla
+        total_width = sum(col_widths)
+        page_width = 210
+        x_start = (page_width - total_width) / 2
+        
+        # Cabecera
+        self.set_x(x_start)
         self.set_font('Arial', 'B', 9)
-        self.set_fill_color(226, 232, 240)
-        self.set_text_color(30, 41, 59)
-        self.set_draw_color(203, 213, 225)
+        self.set_fill_color(241, 245, 249) # Gris muy claro
+        self.set_text_color(51, 65, 85)
+        self.set_draw_color(226, 232, 240)
         
         for i, h in enumerate(header):
-            self.cell(col_widths[i], 8, h, 1, 0, 'C', 1)
+            self.cell(col_widths[i], 9, h, 1, 0, 'C', 1)
         self.ln()
         
+        # Datos
         self.set_font('Arial', '', 9)
-        self.set_text_color(51, 65, 85)
+        self.set_text_color(71, 85, 105)
         
         for row in data:
+            self.set_x(x_start) # Importante: Resetear X en cada fila
             for i, d in enumerate(row):
-                align = 'L' if i == 0 else 'R'
+                align = 'L' if i == 0 else 'C' # Centrar números para mejor estética
+                if i == 0: self.set_font('Arial', 'B', 9) # Primera col negrita
+                else: self.set_font('Arial', '', 9)
+                
                 txt = str(d)
                 self.cell(col_widths[i], 8, txt, 1, 0, align, 0)
             self.ln() 
@@ -202,81 +226,85 @@ def create_pro_pdf(state, kpis):
     pdf = PDF_Pro()
     pdf.add_page()
     
-    # --- RECUPERAR DATOS EXACTOS DE LA APP ---
+    # Recuperar datos exactos
     mr_h_hr_real = kpis['mr_h_hr'] 
     mr_f_hr_real = kpis['mr_f_hr']
-    # Recuperamos el valor del input del usuario
     lote_usuario = kpis.get('mr_lote_input', 1000.0) 
     
-    # --- SECCIÓN 1: PARÁMETROS CONFIGURADOS ---
-    pdf.section_title("1. PARAMETROS DE OPERACION")
+    # --- SECCIÓN 1 ---
+    pdf.section_title("1. Parametros Operativos")
     pdf.set_font('Arial', '', 9)
-    pdf.cell(0, 5, "Resumen de las variables utilizadas para el calculo.", 0, 1)
-    pdf.ln(4)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 5, "Configuración actual del sistema para el cálculo de costos.", 0, 1, 'C')
+    pdf.ln(5)
 
-    params_header = ["Variable", "Harvester", "Forwarder", "Sistema Total"]
+    params_header = ["Indicador", "Harvester", "Forwarder", "Sistema"]
     params_data = [
         ["Dias Operativos", f"{state['h_days']}", f"{state['f_days']}", "-"],
-        ["Horas por Turno", f"{state['h_hours']}", f"{state['f_hours']}", "-"],
-        ["Productividad (MR/hr)", f"{mr_h_hr_real:.1f}", f"{mr_f_hr_real:.1f}", "-"],
-        ["Costo Operativo Mensual", fmt_money(kpis['cost_h_mes']), fmt_money(kpis['cost_f_mes']), fmt_money(kpis['cost_total'])],
-        ["Tarifa Venta ($/MR)", fmt_money(state['price_h']), fmt_money(state['price_f']), fmt_money(state['price_h']+state['price_f'])]
+        ["Horas Turno", f"{state['h_hours']}", f"{state['f_hours']}", "-"],
+        ["Prod. (MR/hr)", f"{mr_h_hr_real:.1f}", f"{mr_f_hr_real:.1f}", "-"],
+        ["Costo Mensual", fmt_money(kpis['cost_h_mes']), fmt_money(kpis['cost_f_mes']), fmt_money(kpis['cost_total'])],
+        ["Tarifa ($/MR)", fmt_money(state['price_h']), fmt_money(state['price_f']), fmt_money(state['price_h']+state['price_f'])]
     ]
-    pdf.nice_table(params_header, params_data, [50, 40, 40, 40])
-    pdf.ln(12)
+    # Anchos ajustados para centrar bonito: 50+35+35+35 = 155mm
+    pdf.nice_table(params_header, params_data, [50, 35, 35, 35])
+    pdf.ln(10)
 
-    # --- SECCIÓN 2: RESULTADOS FINANCIEROS (MENSUAL) ---
-    pdf.section_title("2. PROYECCION MENSUAL")
+    # --- SECCIÓN 2 ---
+    pdf.section_title("2. Proyeccion Mensual")
     
-    y_start = pdf.get_y()
-    pdf.kp_card("INGRESO TOTAL", kpis['inc_total'], "Mensual Estimado", 10, y_start)
-    pdf.kp_card("COSTO TOTAL", kpis['cost_total'], "Directo + Indirecto", 60, y_start)
-    pdf.kp_card("UTILIDAD", kpis['prof_total'], f"Margen: {kpis['margin_total']:.1f}%", 110, y_start)
+    # Tarjetas Centradas
+    # 3 tarjetas de 50mm = 150mm. Espacio 10mm. Total 170mm.
+    # Margen izq calculado: (210 - 170) / 2 = 20
+    x_base = 20
+    y_start = pdf.get_y() + 5
     
-    pdf.set_y(y_start + 30) 
+    pdf.kp_card("INGRESO TOTAL", kpis['inc_total'], "Mensual Est.", x_base, y_start)
+    pdf.kp_card("COSTO TOTAL", kpis['cost_total'], "Operativo", x_base + 60, y_start) # 50 ancho + 10 espacio
+    pdf.kp_card("UTILIDAD", kpis['prof_total'], f"Margen: {kpis['margin_total']:.1f}%", x_base + 120, y_start)
     
-    pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, "Detalle del Estado de Resultados:", 0, 1)
+    pdf.set_y(y_start + 35) 
     
-    fin_header = ["Concepto", "Ingreso ($)", "Costo Total ($)", "Utilidad ($)", "Margen %"]
+    # Tabla Resultados Centrada
+    fin_header = ["Item", "Ingreso", "Costo", "Utilidad", "Margen"]
     fin_data = [
         ["HARVESTER", fmt_money(kpis['inc_h_mes']), fmt_money(kpis['cost_h_mes']), fmt_money(kpis['prof_h_mes']), f"{kpis['margin_h']:.1f}%"],
         ["FORWARDER", fmt_money(kpis['inc_f_mes']), fmt_money(kpis['cost_f_mes']), fmt_money(kpis['prof_f_mes']), f"{kpis['margin_f']:.1f}%"],
-        ["TOTAL SISTEMA", fmt_money(kpis['inc_total']), fmt_money(kpis['cost_total']), fmt_money(kpis['prof_total']), f"{kpis['margin_total']:.1f}%"]
+        ["TOTAL", fmt_money(kpis['inc_total']), fmt_money(kpis['cost_total']), fmt_money(kpis['prof_total']), f"{kpis['margin_total']:.1f}%"]
     ]
-    pdf.nice_table(fin_header, fin_data, [50, 35, 35, 35, 25])
+    # 40+35+35+35+25 = 170mm
+    pdf.nice_table(fin_header, fin_data, [40, 35, 35, 35, 25])
     pdf.ln(10)
 
-    # --- SECCIÓN 3: CIERRE DE FAENA (Sincronizado con App) ---
-    if pdf.get_y() > 180:
+    # --- SECCIÓN 3 ---
+    if pdf.get_y() > 190:
         pdf.add_page()
     else:
         pdf.ln(5)
 
-    # Usamos el valor real del input
-    pdf.section_title(f"3. ANALISIS DE CIERRE DE FAENA (Lote: {lote_usuario:,.0f} MR)")
+    pdf.section_title("3. Analisis de Cierre de Faena")
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, f"Calculo especifico para un volumen de {lote_usuario:,.0f} MR, basado en los costos y tarifas actuales.")
-    pdf.ln(4)
+    pdf.cell(0, 5, f"Simulacion para lote especifico de: {lote_usuario:,.0f} MR", 0, 1, 'C')
+    pdf.ln(5)
     
+    # Cálculos Faena
     hrs_h = lote_usuario / mr_h_hr_real if mr_h_hr_real > 0 else 0
     hrs_f = lote_usuario / mr_f_hr_real if mr_f_hr_real > 0 else 0
-    
     cost_lote = (hrs_h * kpis['cost_sys_hr_h']) + (hrs_f * kpis['cost_sys_hr_f'])
-    
     inc_lote = lote_usuario * (state['price_h'] + state['price_f'])
     prof_lote = inc_lote - cost_lote
     marg_lote = (prof_lote / inc_lote * 100) if inc_lote > 0 else 0
 
-    faena_header = ["Metrica", "Valor Calculado"]
+    faena_header = ["Concepto", "Resultado Calculado"]
     faena_data = [
         ["Volumen Evaluado", f"{lote_usuario:,.0f} MR"],
-        ["Horas Maquina Requeridas", f"H: {hrs_h:.1f} hrs | F: {hrs_f:.1f} hrs"],
+        ["Tiempo Requerido", f"H: {hrs_h:.1f} hrs | F: {hrs_f:.1f} hrs"],
         ["Facturacion Estimada", fmt_money(inc_lote)],
-        ["Costo Operativo Real", fmt_money(cost_lote)],
-        ["UTILIDAD FAENA", fmt_money(prof_lote)],
+        ["Costo Real", fmt_money(cost_lote)],
+        ["UTILIDAD NETA", fmt_money(prof_lote)],
         ["MARGEN OPERACIONAL", f"{marg_lote:.1f}%"]
     ]
+    # Centrada: 80+80 = 160mm
     pdf.nice_table(faena_header, faena_data, [80, 80])
 
     return pdf.output(dest='S').encode('latin-1', 'replace')
