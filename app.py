@@ -336,9 +336,9 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# --- DEFINICIÓN DE PESTAÑAS ---
-tab_dash, tab_strat, tab_faena, tab_h, tab_f, tab_ind = st.tabs([
-    "📊 Dashboard Gerencial", "🎯 Simulador Precios", "🧮 Cierre de Faena", "🚜 COSTOS HARVESTER", "🚜 COSTOS FORWARDER", "👷 COSTOS INDIRECTOS"
+# --- DEFINICIÓN DE PESTAÑAS (SIN SIMULADOR) ---
+tab_dash, tab_faena, tab_h, tab_f, tab_ind = st.tabs([
+    "📊 Dashboard Gerencial", "🧮 Cierre de Faena", "🚜 COSTOS HARVESTER", "🚜 COSTOS FORWARDER", "👷 COSTOS INDIRECTOS"
 ])
 
 # --- INPUTS COSTOS ---
@@ -498,54 +498,6 @@ with tab_dash:
             {"Periodo": "Mes", "Generado": fmt_money(inc_f_mes), "Costo": fmt_money(cost_f_total_mes_real), "Ganancia": fmt_money(prof_f_mes)},
         ])
         st.markdown(render_pro_card("🚜 FORWARDER", df_f, margin_f, target_pct, "#22c55e"), unsafe_allow_html=True)
-
-# --- TAB SIMULADOR ---
-with tab_strat:
-    st.subheader("Simulador de Tarifas")
-    
-    col_sim1, col_sim2 = st.columns(2)
-    with col_sim1:
-        sim_mr = st.number_input("Productividad Objetivo (MR/Hr)", value=20.0, step=0.5)
-    with col_sim2:
-        sim_factor = st.number_input("Factor Faena (m³/MR)", value=2.44, step=0.01)
-        
-    equiv_m3 = sim_mr * sim_factor
-    st.info(f"Equivale a una producción de: **{equiv_m3:,.1f} m³/Hr**")
-    
-    # Costo por MR (Costo Hora Real / Productividad Estimada)
-    unit_cost_h = cost_h_hr / sim_mr if sim_mr > 0 else 0
-    unit_cost_f = cost_f_hr / sim_mr if sim_mr > 0 else 0
-    
-    st.divider()
-    st.markdown("#### Tarifas Sugeridas para esta Faena ($/MR)")
-    
-    c30, c35 = st.columns(2)
-    
-    with c30:
-        p30_h = calc_price(unit_cost_h, 30)
-        p30_f = calc_price(unit_cost_f, 30)
-        st.markdown(f"""
-        <div class="machine-card" style="border-top-color: #fcd34d">
-            <div style="font-weight:bold; color:#b45309; margin-bottom:10px">META 30% MARGEN</div>
-            <div style="display:flex; justify-content:space-between"><span class="sim-label">Harvester:</span><span class="sim-val">{fmt_money(p30_h)}</span></div>
-            <div style="display:flex; justify-content:space-between"><span class="sim-label">Forwarder:</span><span class="sim-val">{fmt_money(p30_f)}</span></div>
-            <hr>
-            <div class="sim-total" style="color:#b45309">{fmt_money(p30_h+p30_f)} / MR</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c35:
-        p35_h = calc_price(unit_cost_h, 35)
-        p35_f = calc_price(unit_cost_f, 35)
-        st.markdown(f"""
-        <div class="machine-card" style="border-top-color: #22c55e">
-            <div style="font-weight:bold; color:#15803d; margin-bottom:10px">META 35% MARGEN</div>
-            <div style="display:flex; justify-content:space-between"><span class="sim-label">Harvester:</span><span class="sim-val">{fmt_money(p35_h)}</span></div>
-            <div style="display:flex; justify-content:space-between"><span class="sim-label">Forwarder:</span><span class="sim-val">{fmt_money(p35_f)}</span></div>
-            <hr>
-            <div class="sim-total" style="color:#15803d">{fmt_money(p35_h+p35_f)} / MR</div>
-        </div>
-        """, unsafe_allow_html=True)
 
 # --- TAB FAENA (ACTUALIZADA) ---
 with tab_faena:
