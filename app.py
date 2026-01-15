@@ -62,19 +62,6 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
-    /* Ajuste de Texto para que no se corten cifras */
-    .sim-val {
-        font-size: 1.1em;
-        font-weight: 700;
-        color: #0f172a;
-    }
-    .sim-total {
-        font-size: 1.4em; 
-        font-weight: 900;
-        text-align: center;
-        margin-top: 5px;
-    }
-    
     /* --- SIDEBAR BLANCO PROFESIONAL --- */
     section[data-testid="stSidebar"] {
         background-color: #ffffff;
@@ -96,7 +83,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v38_indirect_logic.json'
+CONFIG_FILE = 'forest_config_v39_fixed_math.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -271,8 +258,8 @@ def init_key(key, default_value):
 
 init_key('price_h', 6500.0)
 init_key('price_f', 5000.0)
-init_key('pct_ind_h', 50.0) # Por defecto 50%
-init_key('pct_ind_f', 50.0) # El calculo lo ajusta
+init_key('pct_ind_h', 50.0)
+init_key('pct_ind_f', 50.0)
 init_key('conv_factor', 2.44)
 init_key('target_company_margin', 30.0)
 init_key('h_days', 28)
@@ -306,12 +293,10 @@ with st.sidebar:
         
         st.markdown("---")
         st.markdown("**Distribución Indirectos (%)**")
-        # SLIDER LOGICA 100%
         h_pct_val = st.slider("Asignación a Harvester", 0, 100, int(st.session_state['pct_ind_h']))
         st.session_state['pct_ind_h'] = h_pct_val
         st.session_state['pct_ind_f'] = 100 - h_pct_val
         
-        # Visualizacion simple
         c_dist1, c_dist2 = st.columns(2)
         c_dist1.info(f"🚜 H: {st.session_state['pct_ind_h']}%")
         c_dist2.info(f"🚜 F: {st.session_state['pct_ind_f']}%")
@@ -358,33 +343,39 @@ tot_h_dir = float(st.session_state['cost_total_h'])
 tot_f_dir = float(st.session_state['cost_total_f'])
 tot_ind = float(st.session_state['cost_total_ind'])
 
-# Calculo Costos Hora (MOSTRAR EN PESTAÑAS)
-# Harvester
-cost_hr_calc_h = tot_h_dir / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
-with tab_h:
-    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_h)} (Base {h_dias} días x {h_hours} hrs)")
+# --- LOGICA CORREGIDA COSTOS HORA (CRONOLOGICO + DIRECTO) ---
+# 1. Costo Indirecto Base (30 días * 24 horas = 720 horas)
+hourly_ind_chronological = tot_ind / 720
 
-# Forwarder
-cost_hr_calc_f = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
-with tab_f:
-    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_f)} (Base {f_dias} días x {f_hours} hrs)")
+# 2. Cargas por hora
+burden_h_ind = hourly_ind_chronological * (st.session_state['pct_ind_h'] / 100)
+burden_f_ind = hourly_ind_chronological * (st.session_state['pct_ind_f'] / 100)
 
-# Indirectos (Cálculo 30 días / 24 horas)
-hourly_ind_base_24_7 = tot_ind / (30 * 24)
-with tab_ind:
-    st.info(f"ℹ️ **Valor Hora Cronológica (Base 30 días / 24 hrs):** {fmt_money(hourly_ind_base_24_7)}")
-    
-    # Mostrar dinero asignado
-    asign_h_money = tot_ind * (st.session_state['pct_ind_h']/100)
-    asign_f_money = tot_ind * (st.session_state['pct_ind_f']/100)
-    
-    st.caption(f"Distribución Dinero: {fmt_money(asign_h_money)} a Harvester | {fmt_money(asign_f_money)} a Forwarder")
+burden_h_dir = tot_h_dir / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
+burden_f_dir = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
 
-# Distribución Total Mensual (Para P&L)
-# Se distribuye el monto total mensual según el % definido
-cost_h_total_mes = tot_h_dir + (tot_ind * (st.session_state['pct_ind_h'] / 100))
-cost_f_total_mes = tot_f_dir + (tot_ind * (st.session_state['pct_ind_f'] / 100))
+# 3. Costo Hora Final (Lo que ve el usuario)
+cost_h_hr = burden_h_dir + burden_h_ind
+cost_f_hr = burden_f_dir + burden_f_ind
+
+# 4. Proyección Mensual (Base Horas Operativas Reales * Costo Hora Calculado)
+# Esto asegura que la utilidad se calcule sobre las horas que la máquina realmente produce
+cost_h_total_mes = cost_h_hr * (h_dias * h_hours)
+cost_f_total_mes = cost_f_hr * (f_dias * f_hours)
 cost_total_mes = cost_h_total_mes + cost_f_total_mes
+
+# Display en Pestañas
+with tab_h:
+    st.info(f"ℹ️ **Costo Total por Hora Operativa:** {fmt_money(cost_h_hr)}")
+    st.caption(f"Desglose: Directo {fmt_money(burden_h_dir)} + Indirecto {fmt_money(burden_h_ind)}")
+
+with tab_f:
+    st.info(f"ℹ️ **Costo Total por Hora Operativa:** {fmt_money(cost_f_hr)}")
+    st.caption(f"Desglose: Directo {fmt_money(burden_f_dir)} + Indirecto {fmt_money(burden_f_ind)}")
+
+with tab_ind:
+    st.info(f"ℹ️ **Valor Hora Cronológica (Base 720 hrs):** {fmt_money(hourly_ind_chronological)}")
+    st.caption(f"Asignación: {fmt_money(burden_h_ind)} a H | {fmt_money(burden_f_ind)} a F (por hora)")
 
 # Producción
 with tab_dash: 
@@ -406,14 +397,12 @@ with tab_dash:
 inc_h_hr = mr_h_hr * st.session_state['price_h']
 inc_h_day = inc_h_hr * h_hours
 inc_h_mes = inc_h_day * h_dias
-cost_h_hr = cost_h_total_mes / (h_dias * h_hours) if (h_dias*h_hours) > 0 else 0
 prof_h_mes = inc_h_mes - cost_h_total_mes
 margin_h = (prof_h_mes / inc_h_mes * 100) if inc_h_mes > 0 else 0
 
 inc_f_hr = mr_f_hr * st.session_state['price_f']
 inc_f_day = inc_f_hr * f_hours
 inc_f_mes = inc_f_day * f_dias
-cost_f_hr = cost_f_total_mes / (f_dias * f_hours) if (f_dias*f_hours) > 0 else 0
 prof_f_mes = inc_f_mes - cost_f_total_mes
 margin_f = (prof_f_mes / inc_f_mes * 100) if inc_f_mes > 0 else 0
 
@@ -500,12 +489,9 @@ with tab_strat:
     equiv_m3 = sim_mr * sim_factor
     st.info(f"Equivale a una producción de: **{equiv_m3:,.1f} m³/Hr**")
     
-    # Costo por MR
-    hourly_cost_h_sys = cost_h_total_mes / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
-    hourly_cost_f_sys = cost_f_total_mes / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
-    
-    unit_cost_h = hourly_cost_h_sys / sim_mr if sim_mr > 0 else 0
-    unit_cost_f = hourly_cost_f_sys / sim_mr if sim_mr > 0 else 0
+    # Costo por MR (Usando costo hora calculado arriba)
+    unit_cost_h = cost_h_hr / sim_mr if sim_mr > 0 else 0
+    unit_cost_f = cost_f_hr / sim_mr if sim_mr > 0 else 0
     
     st.divider()
     st.markdown("#### Tarifas Sugeridas para esta Faena ($/MR)")
