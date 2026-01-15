@@ -62,6 +62,19 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
+    /* Ajuste de Texto para que no se corten cifras */
+    .sim-val {
+        font-size: 1.1em;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .sim-total {
+        font-size: 1.4em; 
+        font-weight: 900;
+        text-align: center;
+        margin-top: 5px;
+    }
+    
     /* --- SIDEBAR BLANCO PROFESIONAL --- */
     section[data-testid="stSidebar"] {
         background-color: #ffffff;
@@ -83,7 +96,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v39_fixed_math.json'
+CONFIG_FILE = 'forest_config_v40_sales_split.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -235,6 +248,7 @@ def load_config():
     return {}
 
 def save_config():
+    # Incluimos los nuevos campos de porcentaje individual
     keys = ["h_days", "h_hours", "f_days", "f_hours", 
             "cost_total_h", "cost_total_f", "cost_total_ind",
             "pct_ind_h", "pct_ind_f", "price_h", "price_f", "conv_factor", "target_company_margin",
@@ -258,8 +272,8 @@ def init_key(key, default_value):
 
 init_key('price_h', 6500.0)
 init_key('price_f', 5000.0)
-init_key('pct_ind_h', 50.0)
-init_key('pct_ind_f', 50.0)
+init_key('pct_ind_h', 50.0) 
+init_key('pct_ind_f', 50.0) 
 init_key('conv_factor', 2.44)
 init_key('target_company_margin', 30.0)
 init_key('h_days', 28)
@@ -276,9 +290,31 @@ init_key('cost_total_ind', 5000000.0)
 with st.sidebar:
     st.markdown("### ⚙️ PANEL DE GESTIÓN")
     
-    with st.expander("💵 Tarifas Venta ($/MR)", expanded=True):
-        st.session_state['price_h'] = st.number_input("Harvester", value=float(st.session_state['price_h']))
-        st.session_state['price_f'] = st.number_input("Forwarder", value=float(st.session_state['price_f']))
+    # 1. TARIFAS UNIFICADAS Y SPLIT
+    with st.expander("💵 Tarifas Venta (Sistema)", expanded=True):
+        # Calculamos el total actual para mostrar en el input
+        current_total_price = st.session_state['price_h'] + st.session_state['price_f']
+        if current_total_price == 0: current_total_price = 11500.0
+        
+        # Input Único
+        total_price_val = st.number_input("Tarifa Total Sistema ($/MR)", value=float(current_total_price), step=100.0)
+        
+        # Slider Distribución Tarifa
+        # Calculamos % actual para inicializar
+        current_h_pct_price = (st.session_state['price_h'] / total_price_val * 100) if total_price_val > 0 else 60.0
+        h_split_price_pct = st.slider("Distribución Venta: % a Harvester", 0, 100, int(current_h_pct_price))
+        
+        # Actualizamos variables internas inmediatamente
+        st.session_state['price_h'] = total_price_val * (h_split_price_pct / 100)
+        st.session_state['price_f'] = total_price_val * ((100 - h_split_price_pct) / 100)
+        
+        # Guardamos
+        save_config()
+        
+        # Feedback visual
+        c_p1, c_p2 = st.columns(2)
+        c_p1.metric("H", fmt_money(st.session_state['price_h']))
+        c_p2.metric("F", fmt_money(st.session_state['price_f']))
 
     with st.expander("🕒 Jornada Operativa", expanded=True):
         c1, c2 = st.columns(2)
@@ -293,7 +329,7 @@ with st.sidebar:
         
         st.markdown("---")
         st.markdown("**Distribución Indirectos (%)**")
-        h_pct_val = st.slider("Asignación a Harvester", 0, 100, int(st.session_state['pct_ind_h']))
+        h_pct_val = st.slider("Asignación Gasto a Harvester", 0, 100, int(st.session_state['pct_ind_h']))
         st.session_state['pct_ind_h'] = h_pct_val
         st.session_state['pct_ind_f'] = 100 - h_pct_val
         
@@ -343,39 +379,61 @@ tot_h_dir = float(st.session_state['cost_total_h'])
 tot_f_dir = float(st.session_state['cost_total_f'])
 tot_ind = float(st.session_state['cost_total_ind'])
 
+# Calculo Costos Hora (MOSTRAR EN PESTAÑAS)
+# Harvester
+cost_hr_calc_h = tot_h_dir / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
+with tab_h:
+    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_h)} (Base {h_dias} días x {h_hours} hrs)")
+
+# Forwarder
+cost_hr_calc_f = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
+with tab_f:
+    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_f)} (Base {f_dias} días x {f_hours} hrs)")
+
+# Indirectos (Cálculo 30 días / 24 horas)
+hourly_ind_base_24_7 = tot_ind / (30 * 24)
+with tab_ind:
+    st.info(f"ℹ️ **Valor Hora Cronológica (Base 30 días / 24 hrs):** {fmt_money(hourly_ind_base_24_7)}")
+    
+    # Mostrar dinero asignado
+    asign_h_money = tot_ind * (st.session_state['pct_ind_h']/100)
+    asign_f_money = tot_ind * (st.session_state['pct_ind_f']/100)
+    
+    st.caption(f"Distribución Dinero: {fmt_money(asign_h_money)} a Harvester | {fmt_money(asign_f_money)} a Forwarder")
+
+# Distribución Total Mensual (Para P&L)
+# Se distribuye el monto total mensual según el % definido
+cost_h_total_mes = tot_h_dir + (tot_ind * (st.session_state['pct_ind_h'] / 100))
+cost_f_total_mes = tot_f_dir + (tot_ind * (st.session_state['pct_ind_f'] / 100))
+cost_total_mes = cost_h_total_mes + cost_f_total_mes
+
 # --- LOGICA CORREGIDA COSTOS HORA (CRONOLOGICO + DIRECTO) ---
-# 1. Costo Indirecto Base (30 días * 24 horas = 720 horas)
-hourly_ind_chronological = tot_ind / 720
+# 1. Cargas por hora indirecta
+burden_h_ind = hourly_ind_base_24_7 * (st.session_state['pct_ind_h'] / 100)
+burden_f_ind = hourly_ind_base_24_7 * (st.session_state['pct_ind_f'] / 100)
 
-# 2. Cargas por hora
-burden_h_ind = hourly_ind_chronological * (st.session_state['pct_ind_h'] / 100)
-burden_f_ind = hourly_ind_chronological * (st.session_state['pct_ind_f'] / 100)
+# 2. Cargas por hora directa (Ya calculadas arriba para display, reusamos)
+burden_h_dir = cost_hr_calc_h
+burden_f_dir = cost_hr_calc_f
 
-burden_h_dir = tot_h_dir / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
-burden_f_dir = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
-
-# 3. Costo Hora Final (Lo que ve el usuario)
+# 3. Costo Hora Final
 cost_h_hr = burden_h_dir + burden_h_ind
 cost_f_hr = burden_f_dir + burden_f_ind
 
-# 4. Proyección Mensual (Base Horas Operativas Reales * Costo Hora Calculado)
-# Esto asegura que la utilidad se calcule sobre las horas que la máquina realmente produce
-cost_h_total_mes = cost_h_hr * (h_dias * h_hours)
-cost_f_total_mes = cost_f_hr * (f_dias * f_hours)
-cost_total_mes = cost_h_total_mes + cost_f_total_mes
+# RECALCULO DE TOTALES MENSUALES BASADO EN COSTO HORA REAL (Para consistencia visual)
+# Nota: La utilidad se basa en lo que la maquina produce en sus horas operativas
+cost_h_total_mes_real = cost_h_hr * (h_dias * h_hours)
+cost_f_total_mes_real = cost_f_hr * (f_dias * f_hours)
+cost_total_mes_real = cost_h_total_mes_real + cost_f_total_mes_real
 
 # Display en Pestañas
 with tab_h:
-    st.info(f"ℹ️ **Costo Total por Hora Operativa:** {fmt_money(cost_h_hr)}")
-    st.caption(f"Desglose: Directo {fmt_money(burden_h_dir)} + Indirecto {fmt_money(burden_h_ind)}")
+    st.success(f"💰 **COSTO TOTAL HORA:** {fmt_money(cost_h_hr)}")
+    st.caption(f"Desglose: {fmt_money(burden_h_dir)} (Directo) + {fmt_money(burden_h_ind)} (Indirecto)")
 
 with tab_f:
-    st.info(f"ℹ️ **Costo Total por Hora Operativa:** {fmt_money(cost_f_hr)}")
-    st.caption(f"Desglose: Directo {fmt_money(burden_f_dir)} + Indirecto {fmt_money(burden_f_ind)}")
-
-with tab_ind:
-    st.info(f"ℹ️ **Valor Hora Cronológica (Base 720 hrs):** {fmt_money(hourly_ind_chronological)}")
-    st.caption(f"Asignación: {fmt_money(burden_h_ind)} a H | {fmt_money(burden_f_ind)} a F (por hora)")
+    st.success(f"💰 **COSTO TOTAL HORA:** {fmt_money(cost_f_hr)}")
+    st.caption(f"Desglose: {fmt_money(burden_f_dir)} (Directo) + {fmt_money(burden_f_ind)} (Indirecto)")
 
 # Producción
 with tab_dash: 
@@ -397,13 +455,13 @@ with tab_dash:
 inc_h_hr = mr_h_hr * st.session_state['price_h']
 inc_h_day = inc_h_hr * h_hours
 inc_h_mes = inc_h_day * h_dias
-prof_h_mes = inc_h_mes - cost_h_total_mes
+prof_h_mes = inc_h_mes - cost_h_total_mes_real
 margin_h = (prof_h_mes / inc_h_mes * 100) if inc_h_mes > 0 else 0
 
 inc_f_hr = mr_f_hr * st.session_state['price_f']
 inc_f_day = inc_f_hr * f_hours
 inc_f_mes = inc_f_day * f_dias
-prof_f_mes = inc_f_mes - cost_f_total_mes
+prof_f_mes = inc_f_mes - cost_f_total_mes_real
 margin_f = (prof_f_mes / inc_f_mes * 100) if inc_f_mes > 0 else 0
 
 inc_total = inc_h_mes + inc_f_mes
@@ -419,7 +477,7 @@ with tab_dash:
         fig_money = go.Figure()
         cats = ['Harvester', 'Forwarder', 'Total']
         fig_money.add_trace(go.Bar(name='Venta', x=cats, y=[inc_h_mes, inc_f_mes, inc_total], marker_color='#3b82f6', texttemplate='$%{y:,.0f}'))
-        fig_money.add_trace(go.Bar(name='Costo', x=cats, y=[cost_h_total_mes, cost_f_total_mes, cost_total_mes], marker_color='#ef4444', texttemplate='$%{y:,.0f}'))
+        fig_money.add_trace(go.Bar(name='Costo', x=cats, y=[cost_h_total_mes_real, cost_f_total_mes_real, cost_total_mes_real], marker_color='#ef4444', texttemplate='$%{y:,.0f}'))
         fig_money.add_trace(go.Bar(name='Utilidad', x=cats, y=[prof_h_mes, prof_f_mes, prof_total], marker_color='#22c55e', texttemplate='$%{y:,.0f}'))
         fig_money.update_layout(barmode='group', title="Resultado $ (Mensual)", height=350, legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig_money, use_container_width=True)
@@ -463,16 +521,16 @@ with tab_dash:
     with c_t1:
         df_h = pd.DataFrame([
             {"Periodo": "Hora", "Generado": fmt_money(inc_h_hr), "Costo": fmt_money(cost_h_hr), "Ganancia": fmt_money(inc_h_hr-cost_h_hr)},
-            {"Periodo": "Día", "Generado": fmt_money(inc_h_day), "Costo": fmt_money(cost_h_total_mes/h_dias if h_dias>0 else 0), "Ganancia": fmt_money(inc_h_day-(cost_h_total_mes/h_dias if h_dias>0 else 0))},
-            {"Periodo": "Mes", "Generado": fmt_money(inc_h_mes), "Costo": fmt_money(cost_h_total_mes), "Ganancia": fmt_money(prof_h_mes)},
+            {"Periodo": "Día", "Generado": fmt_money(inc_h_day), "Costo": fmt_money(cost_h_hr*h_hours), "Ganancia": fmt_money(inc_h_day-(cost_h_hr*h_hours))},
+            {"Periodo": "Mes", "Generado": fmt_money(inc_h_mes), "Costo": fmt_money(cost_h_total_mes_real), "Ganancia": fmt_money(prof_h_mes)},
         ])
         st.markdown(render_pro_card("🚜 HARVESTER", df_h, margin_h, target_pct, "#eab308"), unsafe_allow_html=True)
         
     with c_t2:
         df_f = pd.DataFrame([
             {"Periodo": "Hora", "Generado": fmt_money(inc_f_hr), "Costo": fmt_money(cost_f_hr), "Ganancia": fmt_money(inc_f_hr-cost_f_hr)},
-            {"Periodo": "Día", "Generado": fmt_money(inc_f_day), "Costo": fmt_money(cost_f_total_mes/f_dias if f_dias>0 else 0), "Ganancia": fmt_money(inc_f_day-(cost_f_total_mes/f_dias if f_dias>0 else 0))},
-            {"Periodo": "Mes", "Generado": fmt_money(inc_f_mes), "Costo": fmt_money(cost_f_total_mes), "Ganancia": fmt_money(prof_f_mes)},
+            {"Periodo": "Día", "Generado": fmt_money(inc_f_day), "Costo": fmt_money(cost_f_hr*f_hours), "Ganancia": fmt_money(inc_f_day-(cost_f_hr*f_hours))},
+            {"Periodo": "Mes", "Generado": fmt_money(inc_f_mes), "Costo": fmt_money(cost_f_total_mes_real), "Ganancia": fmt_money(prof_f_mes)},
         ])
         st.markdown(render_pro_card("🚜 FORWARDER", df_f, margin_f, target_pct, "#22c55e"), unsafe_allow_html=True)
 
@@ -489,7 +547,7 @@ with tab_strat:
     equiv_m3 = sim_mr * sim_factor
     st.info(f"Equivale a una producción de: **{equiv_m3:,.1f} m³/Hr**")
     
-    # Costo por MR (Usando costo hora calculado arriba)
+    # Costo por MR (Usando costo hora real ya calculado)
     unit_cost_h = cost_h_hr / sim_mr if sim_mr > 0 else 0
     unit_cost_f = cost_f_hr / sim_mr if sim_mr > 0 else 0
     
@@ -566,16 +624,16 @@ with tab_faena:
 # --- GENERACIÓN PDF ---
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
-    'inc_total': inc_total, 'cost_total': cost_total_mes, 'prof_total': prof_total,
+    'inc_total': inc_total, 'cost_total': cost_total_mes_real, 'prof_total': prof_total,
     'margin_total': margin_total,
-    'inc_h_mes': inc_h_mes, 'cost_h_mes': cost_h_total_mes, 'prof_h_mes': prof_h_mes,
-    'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_total_mes, 'prof_f_mes': prof_f_mes,
+    'inc_h_mes': inc_h_mes, 'cost_h_mes': cost_h_total_mes_real, 'prof_h_mes': prof_h_mes,
+    'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_total_mes_real, 'prof_f_mes': prof_f_mes,
     'inc_sys_hr': inc_h_hr + inc_f_hr, 
     'cost_sys_hr': cost_h_hr + cost_f_hr,
     'prof_sys_hr': (inc_h_hr + inc_f_hr) - (cost_h_hr + cost_f_hr),
     'inc_sys_day': inc_h_day + inc_f_day,
-    'cost_sys_day': (cost_h_total_mes/h_dias if h_dias>0 else 0) + (cost_f_total_mes/f_dias if f_dias>0 else 0),
-    'prof_sys_day': (inc_h_day + inc_f_day) - ((cost_h_total_mes/h_dias if h_dias>0 else 0) + (cost_f_total_mes/f_dias if f_dias>0 else 0))
+    'cost_sys_day': (cost_h_total_mes_real/h_dias if h_dias>0 else 0) + (cost_f_total_mes_real/f_dias if f_dias>0 else 0),
+    'prof_sys_day': (inc_h_day + inc_f_day) - ((cost_h_total_mes_real/h_dias if h_dias>0 else 0) + (cost_f_total_mes_real/f_dias if f_dias>0 else 0))
 }
 
 with st.sidebar:
