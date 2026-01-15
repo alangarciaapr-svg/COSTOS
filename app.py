@@ -218,7 +218,7 @@ def create_pro_pdf(state, kpis):
     
     pdf.ln(35) # Espacio suficiente para no chocar con la tabla
     
-    # Tabla Detallada - Corregida para no verse en bloque
+    # Tabla Detallada
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(0, 8, "Detalle del Estado de Resultados:", 0, 1)
     
@@ -231,7 +231,11 @@ def create_pro_pdf(state, kpis):
     pdf.nice_table(fin_header, fin_data, [50, 35, 35, 35, 25])
     pdf.ln(10)
 
-    # --- SECCIÓN 3: EJEMPLO DE FAENA TIPO ---
+    # --- SECCIÓN 3: CORRECCIÓN DE SALTO DE PÁGINA ---
+    # Verificamos si queda poco espacio en la página (si Y > 200mm)
+    if pdf.get_y() > 200:
+        pdf.add_page() # Forzar nueva página para que la tabla no se corte
+
     pdf.section_title("3. ANALISIS DE CIERRE DE FAENA (Ejemplo: 1.000 MR)")
     pdf.set_font('Arial', '', 9)
     pdf.multi_cell(0, 5, "Simulacion de resultado para un lote estandar de 1.000 Metros Ruma.")
