@@ -62,17 +62,26 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
-    /* Ajuste de Texto para que no se corten cifras */
-    .sim-val {
+    /* Estilos para Cierre de Faena */
+    .faena-metric {
         font-size: 1.1em;
+        color: #475569;
+        margin-bottom: 5px;
+        display: flex;
+        justify-content: space-between;
+    }
+    .faena-val {
         font-weight: 700;
         color: #0f172a;
     }
-    .sim-total {
-        font-size: 1.4em; 
-        font-weight: 900;
+    .faena-total-row {
+        margin-top: 15px;
+        padding-top: 10px;
+        border-top: 2px dashed #cbd5e1;
+        font-size: 1.3em;
+        font-weight: 800;
         text-align: center;
-        margin-top: 5px;
+        color: #166534;
     }
     
     /* --- SIDEBAR BLANCO PROFESIONAL --- */
@@ -96,7 +105,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v40_sales_split.json'
+CONFIG_FILE = 'forest_config_v41_faena_logic.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -248,7 +257,6 @@ def load_config():
     return {}
 
 def save_config():
-    # Incluimos los nuevos campos de porcentaje individual
     keys = ["h_days", "h_hours", "f_days", "f_hours", 
             "cost_total_h", "cost_total_f", "cost_total_ind",
             "pct_ind_h", "pct_ind_f", "price_h", "price_f", "conv_factor", "target_company_margin",
@@ -290,28 +298,20 @@ init_key('cost_total_ind', 5000000.0)
 with st.sidebar:
     st.markdown("### ⚙️ PANEL DE GESTIÓN")
     
-    # 1. TARIFAS UNIFICADAS Y SPLIT
     with st.expander("💵 Tarifas Venta (Sistema)", expanded=True):
-        # Calculamos el total actual para mostrar en el input
         current_total_price = st.session_state['price_h'] + st.session_state['price_f']
         if current_total_price == 0: current_total_price = 11500.0
         
-        # Input Único
         total_price_val = st.number_input("Tarifa Total Sistema ($/MR)", value=float(current_total_price), step=100.0)
         
-        # Slider Distribución Tarifa
-        # Calculamos % actual para inicializar
+        # Calcular split actual
         current_h_pct_price = (st.session_state['price_h'] / total_price_val * 100) if total_price_val > 0 else 60.0
         h_split_price_pct = st.slider("Distribución Venta: % a Harvester", 0, 100, int(current_h_pct_price))
         
-        # Actualizamos variables internas inmediatamente
         st.session_state['price_h'] = total_price_val * (h_split_price_pct / 100)
         st.session_state['price_f'] = total_price_val * ((100 - h_split_price_pct) / 100)
-        
-        # Guardamos
         save_config()
         
-        # Feedback visual
         c_p1, c_p2 = st.columns(2)
         c_p1.metric("H", fmt_money(st.session_state['price_h']))
         c_p2.metric("F", fmt_money(st.session_state['price_f']))
@@ -379,49 +379,19 @@ tot_h_dir = float(st.session_state['cost_total_h'])
 tot_f_dir = float(st.session_state['cost_total_f'])
 tot_ind = float(st.session_state['cost_total_ind'])
 
-# Calculo Costos Hora (MOSTRAR EN PESTAÑAS)
-# Harvester
-cost_hr_calc_h = tot_h_dir / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
-with tab_h:
-    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_h)} (Base {h_dias} días x {h_hours} hrs)")
+# --- LOGICA COSTOS HORA CORRECTA ---
+hourly_ind_base_24_7 = tot_ind / 720 # Base cronologica
 
-# Forwarder
-cost_hr_calc_f = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
-with tab_f:
-    st.info(f"ℹ️ **Costo Directo por Hora:** {fmt_money(cost_hr_calc_f)} (Base {f_dias} días x {f_hours} hrs)")
-
-# Indirectos (Cálculo 30 días / 24 horas)
-hourly_ind_base_24_7 = tot_ind / (30 * 24)
-with tab_ind:
-    st.info(f"ℹ️ **Valor Hora Cronológica (Base 30 días / 24 hrs):** {fmt_money(hourly_ind_base_24_7)}")
-    
-    # Mostrar dinero asignado
-    asign_h_money = tot_ind * (st.session_state['pct_ind_h']/100)
-    asign_f_money = tot_ind * (st.session_state['pct_ind_f']/100)
-    
-    st.caption(f"Distribución Dinero: {fmt_money(asign_h_money)} a Harvester | {fmt_money(asign_f_money)} a Forwarder")
-
-# Distribución Total Mensual (Para P&L)
-# Se distribuye el monto total mensual según el % definido
-cost_h_total_mes = tot_h_dir + (tot_ind * (st.session_state['pct_ind_h'] / 100))
-cost_f_total_mes = tot_f_dir + (tot_ind * (st.session_state['pct_ind_f'] / 100))
-cost_total_mes = cost_h_total_mes + cost_f_total_mes
-
-# --- LOGICA CORREGIDA COSTOS HORA (CRONOLOGICO + DIRECTO) ---
-# 1. Cargas por hora indirecta
 burden_h_ind = hourly_ind_base_24_7 * (st.session_state['pct_ind_h'] / 100)
 burden_f_ind = hourly_ind_base_24_7 * (st.session_state['pct_ind_f'] / 100)
 
-# 2. Cargas por hora directa (Ya calculadas arriba para display, reusamos)
-burden_h_dir = cost_hr_calc_h
-burden_f_dir = cost_hr_calc_f
+burden_h_dir = tot_h_dir / (h_dias * h_hours) if (h_dias * h_hours) > 0 else 0
+burden_f_dir = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
 
-# 3. Costo Hora Final
 cost_h_hr = burden_h_dir + burden_h_ind
 cost_f_hr = burden_f_dir + burden_f_ind
 
-# RECALCULO DE TOTALES MENSUALES BASADO EN COSTO HORA REAL (Para consistencia visual)
-# Nota: La utilidad se basa en lo que la maquina produce en sus horas operativas
+# Totales P&L ajustados a horas operativas reales
 cost_h_total_mes_real = cost_h_hr * (h_dias * h_hours)
 cost_f_total_mes_real = cost_f_hr * (f_dias * f_hours)
 cost_total_mes_real = cost_h_total_mes_real + cost_f_total_mes_real
@@ -434,6 +404,10 @@ with tab_h:
 with tab_f:
     st.success(f"💰 **COSTO TOTAL HORA:** {fmt_money(cost_f_hr)}")
     st.caption(f"Desglose: {fmt_money(burden_f_dir)} (Directo) + {fmt_money(burden_f_ind)} (Indirecto)")
+
+with tab_ind:
+    st.info(f"ℹ️ **Valor Hora Cronológica (Base 720 hrs):** {fmt_money(hourly_ind_base_24_7)}")
+    st.caption(f"Asignación: {fmt_money(burden_h_ind)} a H | {fmt_money(burden_f_ind)} a F (por hora)")
 
 # Producción
 with tab_dash: 
@@ -582,44 +556,61 @@ with tab_strat:
         </div>
         """, unsafe_allow_html=True)
 
-# --- TAB FAENA ---
+# --- TAB FAENA (MODIFICADA v41) ---
 with tab_faena:
     st.header("🧮 Cierre de Faena")
-    st.markdown("Ingresa el **Total de Metros Ruma (MR)** de una faena para ver su resultado específico.")
-    mr_lote = st.number_input("Total MR Faena", value=1000.0, step=100.0)
+    st.markdown("Cálculo de tiempos y rentabilidad basado en el **total producido**.")
+    
+    c_lote1, c_lote2 = st.columns(2)
+    with c_lote1:
+        mr_lote = st.number_input("Total MR Producidos", value=1000.0, step=100.0)
     
     if mr_lote > 0:
         st.divider()
-        hrs_req_h = mr_lote / mr_h_hr if mr_h_hr > 0 else 0
-        hrs_req_f = mr_lote / mr_f_hr if mr_f_hr > 0 else 0
+        # 1. Calculo de Tiempos
+        req_hrs_h = mr_lote / mr_h_hr if mr_h_hr > 0 else 0
+        req_days_h = req_hrs_h / h_hours if h_hours > 0 else 0
         
-        inc_lote_h = mr_lote * st.session_state['price_h']
-        inc_lote_f = mr_lote * st.session_state['price_f']
+        req_hrs_f = mr_lote / mr_f_hr if mr_f_hr > 0 else 0
+        req_days_f = req_hrs_f / f_hours if f_hours > 0 else 0
         
-        cost_lote_h = hrs_req_h * cost_h_hr
-        cost_lote_f = hrs_req_f * cost_f_hr
+        # 2. Ingresos (Repartidos según split de tarifa)
+        rev_lote_h = mr_lote * st.session_state['price_h']
+        rev_lote_f = mr_lote * st.session_state['price_f']
         
-        prof_lote_h = inc_lote_h - cost_lote_h
-        prof_lote_f = inc_lote_f - cost_lote_f
+        # 3. Costos (Basados en las horas requeridas * costo hora total)
+        cost_lote_h = req_hrs_h * cost_h_hr
+        cost_lote_f = req_hrs_f * cost_f_hr
+        
+        # 4. Utilidad
+        util_lote_h = rev_lote_h - cost_lote_h
+        util_lote_f = rev_lote_f - cost_lote_f
         
         c_res1, c_res2 = st.columns(2)
+        
         with c_res1:
             st.markdown(f"""
-            <div class="faena-card">
+            <div class="machine-card" style="border-top-color:#eab308">
                 <div class="card-header">🚜 Harvester</div>
-                <div>Horas Requeridas: <b>{hrs_req_h:,.1f} hrs</b></div>
-                <div style="margin-top:10px; font-size:1.1em">Utilidad: <span style="color:#16a34a; font-weight:bold">{fmt_money(prof_lote_h)}</span></div>
+                <div class="faena-metric"><span>Tiempo:</span><span class="faena-val">{req_hrs_h:,.1f} hrs ({req_days_h:,.1f} días)</span></div>
+                <div class="faena-metric"><span>Ingreso:</span><span class="faena-val" style="color:#2563eb">{fmt_money(rev_lote_h)}</span></div>
+                <div class="faena-metric"><span>Costo:</span><span class="faena-val" style="color:#dc2626">{fmt_money(cost_lote_h)}</span></div>
+                <div class="faena-total-row">Utilidad: {fmt_money(util_lote_h)}</div>
             </div>
             """, unsafe_allow_html=True)
+            
         with c_res2:
             st.markdown(f"""
-            <div class="faena-card">
+            <div class="machine-card" style="border-top-color:#22c55e">
                 <div class="card-header">🚜 Forwarder</div>
-                <div>Horas Requeridas: <b>{hrs_req_f:,.1f} hrs</b></div>
-                <div style="margin-top:10px; font-size:1.1em">Utilidad: <span style="color:#16a34a; font-weight:bold">{fmt_money(prof_lote_f)}</span></div>
+                <div class="faena-metric"><span>Tiempo:</span><span class="faena-val">{req_hrs_f:,.1f} hrs ({req_days_f:,.1f} días)</span></div>
+                <div class="faena-metric"><span>Ingreso:</span><span class="faena-val" style="color:#2563eb">{fmt_money(rev_lote_f)}</span></div>
+                <div class="faena-metric"><span>Costo:</span><span class="faena-val" style="color:#dc2626">{fmt_money(cost_lote_f)}</span></div>
+                <div class="faena-total-row">Utilidad: {fmt_money(util_lote_f)}</div>
             </div>
             """, unsafe_allow_html=True)
-        st.success(f"💰 **UTILIDAD TOTAL DEL LOTE: {fmt_money(prof_lote_h + prof_lote_f)}**")
+            
+        st.markdown(f"<div style='text-align:center; padding:20px; background:#dcfce7; border-radius:10px; margin-top:20px'><h2 style='color:#166534; margin:0'>UTILIDAD TOTAL DEL LOTE: {fmt_money(util_lote_h + util_lote_f)}</h2></div>", unsafe_allow_html=True)
 
 # --- GENERACIÓN PDF ---
 pdf_kpis = {
