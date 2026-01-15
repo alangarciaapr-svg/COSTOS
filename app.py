@@ -61,10 +61,7 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
-    /* Estilos Simulación y Faena */
-    .sim-val { font-size: 1.1em; font-weight: 700; color: #0f172a; }
-    .sim-total { font-size: 1.4em; font-weight: 900; text-align: center; margin-top: 5px; }
-    
+    /* Estilos Faena */
     .faena-metric {
         font-size: 1.1em; color: #475569; margin-bottom: 5px;
         display: flex; justify-content: space-between; border-bottom: 1px dashed #e2e8f0; padding-bottom: 4px;
@@ -104,20 +101,15 @@ def fmt_money(x):
     if x is None: return "$ 0"
     return f"$ {x:,.0f}".replace(",", ".")
 
-def calc_price(cost, margin_pct):
-    if margin_pct >= 100: return 0 
-    factor = 1 - (margin_pct / 100.0)
-    return cost / factor if factor > 0 else 0
-
 # --- 3. MOTOR PDF GRÁFICO (CORREGIDO) ---
 class PDF_Pro(FPDF):
     def header(self):
-        # Fondo Azul Corporativo - Corregido ancho a 210 para A4 Vertical
+        # Fondo Azul Corporativo - A4 Vertical 210mm
         self.set_fill_color(30, 58, 138) # #1e3a8a
         self.rect(0, 0, 210, 35, 'F') 
         
         # Título
-        self.set_font('Arial', 'B', 14) # Ajustado ligeramente tamaño
+        self.set_font('Arial', 'B', 14) 
         self.set_text_color(255, 255, 255)
         self.set_xy(10, 10)
         self.cell(0, 10, 'SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.', 0, 1, 'L')
@@ -159,7 +151,7 @@ class PDF_Pro(FPDF):
         self.set_text_color(100, 116, 139)
         self.cell(w, 5, label, 0, 1, 'C')
         
-        self.set_font('Arial', 'B', 11) # Tamaño ajustado para evitar overflow
+        self.set_font('Arial', 'B', 11) 
         self.set_text_color(15, 23, 42)
         val_str = fmt_money(value) if is_money else value
         self.cell(w, 8, val_str, 0, 1, 'C')
@@ -169,31 +161,27 @@ class PDF_Pro(FPDF):
         self.cell(w, 5, sublabel, 0, 1, 'C')
 
     def nice_table(self, header, data, col_widths):
+        # Cabecera
         self.set_font('Arial', 'B', 9)
         self.set_fill_color(226, 232, 240)
         self.set_text_color(30, 41, 59)
         self.set_draw_color(203, 213, 225)
         
-        # Header
         for i, h in enumerate(header):
             self.cell(col_widths[i], 8, h, 1, 0, 'C', 1)
         self.ln()
         
-        # Data
+        # Datos
         self.set_font('Arial', '', 9)
         self.set_text_color(51, 65, 85)
-        fill = False
+        
         for row in data:
-            self.set_fill_color(248, 250, 252) if fill else self.set_fill_color(255, 255, 255)
-            # FPDF fill parameter expects boolean or 1/0
-            do_fill = 1 if fill else 0
             for i, d in enumerate(row):
                 align = 'L' if i == 0 else 'R'
-                # Truncar textos muy largos si es necesario
                 txt = str(d)
-                self.cell(col_widths[i], 8, txt, 1, 0, align, do_fill)
-            self.ln()
-            fill = not fill
+                # Cell simple, sin relleno para evitar bloques sólidos
+                self.cell(col_widths[i], 8, txt, 1, 0, align, 0)
+            self.ln() # Salto de línea explícito por fila
 
 def create_pro_pdf(state, kpis):
     pdf = PDF_Pro()
@@ -202,16 +190,13 @@ def create_pro_pdf(state, kpis):
     # --- SECCIÓN 1: PARÁMETROS CONFIGURADOS ---
     pdf.section_title("1. PARAMETROS DE OPERACION")
     pdf.set_font('Arial', '', 9)
-    pdf.cell(0, 5, "Resumen de las variables utilizadas para el calculo de costos y tarifas.", 0, 1)
+    pdf.cell(0, 5, "Resumen de las variables utilizadas.", 0, 1)
     pdf.ln(3)
 
-    # Tabla de parámetros
-    params_header = ["Variable", "Harvester", "Forwarder", "Sistema Total"]
-    
-    # Prevenir division por cero en display
     div_h = max(1, state['h_days']*state['h_hours'])
     div_f = max(1, state['f_days']*state['f_hours'])
 
+    params_header = ["Variable", "Harvester", "Forwarder", "Sistema Total"]
     params_data = [
         ["Dias Operativos", f"{state['h_days']}", f"{state['f_days']}", "-"],
         ["Horas por Turno", f"{state['h_hours']}", f"{state['f_hours']}", "-"],
@@ -223,17 +208,20 @@ def create_pro_pdf(state, kpis):
     pdf.ln(10)
 
     # --- SECCIÓN 2: RESULTADOS FINANCIEROS (MENSUAL) ---
-    pdf.section_title("2. PROYECCION MENSUAL (ESTADO DE RESULTADOS)")
+    pdf.section_title("2. PROYECCION MENSUAL")
     
-    # KPIs visuales (Tarjetas)
+    # KPIs visuales
     y_start = pdf.get_y()
     pdf.kp_card("INGRESO TOTAL", kpis['inc_total'], "Mensual Estimado", 10, y_start)
     pdf.kp_card("COSTO TOTAL", kpis['cost_total'], "Directo + Indirecto", 60, y_start)
     pdf.kp_card("UTILIDAD", kpis['prof_total'], f"Margen: {kpis['margin_total']:.1f}%", 110, y_start)
     
-    pdf.ln(30)
+    pdf.ln(35) # Espacio suficiente para no chocar con la tabla
     
-    # Tabla Detallada
+    # Tabla Detallada - Corregida para no verse en bloque
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 8, "Detalle del Estado de Resultados:", 0, 1)
+    
     fin_header = ["Concepto", "Ingreso ($)", "Costo Total ($)", "Utilidad ($)", "Margen %"]
     fin_data = [
         ["HARVESTER", fmt_money(kpis['inc_h_mes']), fmt_money(kpis['cost_h_mes']), fmt_money(kpis['prof_h_mes']), f"{kpis['margin_h']:.1f}%"],
@@ -246,10 +234,9 @@ def create_pro_pdf(state, kpis):
     # --- SECCIÓN 3: EJEMPLO DE FAENA TIPO ---
     pdf.section_title("3. ANALISIS DE CIERRE DE FAENA (Ejemplo: 1.000 MR)")
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, "Simulacion de resultado para un lote estandar de 1.000 Metros Ruma, basado en los rendimientos horarios actuales.")
+    pdf.multi_cell(0, 5, "Simulacion de resultado para un lote estandar de 1.000 Metros Ruma.")
     pdf.ln(2)
 
-    # Cálculos 'al vuelo' para el PDF
     lote_ex = 1000.0
     prod_sys_h = kpis['mr_h'] / div_h
     prod_sys_f = kpis['mr_f'] / div_f
@@ -605,7 +592,7 @@ with tab_faena:
         </div>
         """, unsafe_allow_html=True)
 
-# --- GENERACIÓN PDF (Data Prep) ---
+# --- GENERACIÓN PDF ---
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
     'inc_total': inc_total, 'cost_total': cost_total_mes_real, 'prof_total': prof_total,
