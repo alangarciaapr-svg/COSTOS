@@ -101,10 +101,10 @@ def fmt_money(x):
     if x is None: return "$ 0"
     return f"$ {x:,.0f}".replace(",", ".")
 
-# --- 3. MOTOR PDF GRÁFICO (CORREGIDO) ---
+# --- 3. MOTOR PDF GRÁFICO (CORREGIDO Y ESTABILIZADO) ---
 class PDF_Pro(FPDF):
     def header(self):
-        # Fondo Azul Corporativo - A4 Vertical 210mm
+        # Fondo Azul Corporativo - A4 Vertical (210mm ancho)
         self.set_fill_color(30, 58, 138) # #1e3a8a
         self.rect(0, 0, 210, 35, 'F') 
         
@@ -123,7 +123,7 @@ class PDF_Pro(FPDF):
         self.set_xy(160, 12)
         self.set_font('Arial', 'B', 10)
         self.cell(40, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
-        self.ln(15)
+        self.ln(20) # Espacio seguro después del header
 
     def footer(self):
         self.set_y(-15)
@@ -132,13 +132,13 @@ class PDF_Pro(FPDF):
         self.cell(0, 10, f'Pagina {self.page_no()}', 0, 0, 'C')
 
     def section_title(self, title):
-        self.set_font('Arial', 'B', 14)
+        self.set_font('Arial', 'B', 12)
         self.set_text_color(30, 58, 138)
-        self.cell(0, 10, title, 0, 1, 'L')
+        self.cell(0, 8, title, 0, 1, 'L')
         self.set_draw_color(30, 58, 138)
         self.set_line_width(0.5)
         self.line(10, self.get_y(), 200, self.get_y())
-        self.ln(5)
+        self.ln(6)
 
     def kp_card(self, label, value, sublabel, x, y, w=45, h=25, is_money=True):
         self.set_xy(x, y)
@@ -153,7 +153,7 @@ class PDF_Pro(FPDF):
         
         self.set_font('Arial', 'B', 11) 
         self.set_text_color(15, 23, 42)
-        val_str = fmt_money(value) if is_money else value
+        val_str = fmt_money(value) if is_money else str(value)
         self.cell(w, 8, val_str, 0, 1, 'C')
         
         self.set_font('Arial', '', 7)
@@ -179,44 +179,47 @@ class PDF_Pro(FPDF):
             for i, d in enumerate(row):
                 align = 'L' if i == 0 else 'R'
                 txt = str(d)
-                # Cell simple, sin relleno para evitar bloques sólidos
                 self.cell(col_widths[i], 8, txt, 1, 0, align, 0)
-            self.ln() # Salto de línea explícito por fila
+            self.ln() 
 
 def create_pro_pdf(state, kpis):
     pdf = PDF_Pro()
     pdf.add_page()
-
+    
+    # --- RECUPERAR DATOS EXACTOS DE LA APP (NO RECALCULAR) ---
+    # Usamos los valores ya calculados en 'kpis' para asegurar consistencia
+    mr_h_hr_real = kpis['mr_h_hr'] 
+    mr_f_hr_real = kpis['mr_f_hr']
+    
     # --- SECCIÓN 1: PARÁMETROS CONFIGURADOS ---
     pdf.section_title("1. PARAMETROS DE OPERACION")
     pdf.set_font('Arial', '', 9)
-    pdf.cell(0, 5, "Resumen de las variables utilizadas.", 0, 1)
-    pdf.ln(3)
-
-    div_h = max(1, state['h_days']*state['h_hours'])
-    div_f = max(1, state['f_days']*state['f_hours'])
+    pdf.cell(0, 5, "Resumen de las variables utilizadas para el calculo (Datos directo de App).", 0, 1)
+    pdf.ln(4)
 
     params_header = ["Variable", "Harvester", "Forwarder", "Sistema Total"]
     params_data = [
         ["Dias Operativos", f"{state['h_days']}", f"{state['f_days']}", "-"],
         ["Horas por Turno", f"{state['h_hours']}", f"{state['f_hours']}", "-"],
-        ["Productividad (MR/hr)", f"{kpis['mr_h']/div_h:.1f}", f"{kpis['mr_f']/div_f:.1f}", "-"],
+        # AQUÍ: Usamos el dato real, no un promedio recalculado
+        ["Productividad (MR/hr)", f"{mr_h_hr_real:.1f}", f"{mr_f_hr_real:.1f}", "-"],
         ["Costo Operativo Mensual", fmt_money(kpis['cost_h_mes']), fmt_money(kpis['cost_f_mes']), fmt_money(kpis['cost_total'])],
         ["Tarifa Venta ($/MR)", fmt_money(state['price_h']), fmt_money(state['price_f']), fmt_money(state['price_h']+state['price_f'])]
     ]
     pdf.nice_table(params_header, params_data, [50, 40, 40, 40])
-    pdf.ln(10)
+    pdf.ln(12)
 
     # --- SECCIÓN 2: RESULTADOS FINANCIEROS (MENSUAL) ---
     pdf.section_title("2. PROYECCION MENSUAL")
     
-    # KPIs visuales
+    # Tarjetas (KPIs)
     y_start = pdf.get_y()
     pdf.kp_card("INGRESO TOTAL", kpis['inc_total'], "Mensual Estimado", 10, y_start)
     pdf.kp_card("COSTO TOTAL", kpis['cost_total'], "Directo + Indirecto", 60, y_start)
     pdf.kp_card("UTILIDAD", kpis['prof_total'], f"Margen: {kpis['margin_total']:.1f}%", 110, y_start)
     
-    pdf.ln(35) # Espacio suficiente para no chocar con la tabla
+    # Aseguramos bajar lo suficiente para que no se superponga la siguiente tabla
+    pdf.set_y(y_start + 30) 
     
     # Tabla Detallada
     pdf.set_font('Arial', 'B', 10)
@@ -231,24 +234,28 @@ def create_pro_pdf(state, kpis):
     pdf.nice_table(fin_header, fin_data, [50, 35, 35, 35, 25])
     pdf.ln(10)
 
-    # --- SECCIÓN 3: CORRECCIÓN DE SALTO DE PÁGINA ---
-    # Verificamos si queda poco espacio en la página (si Y > 200mm)
-    if pdf.get_y() > 200:
-        pdf.add_page() # Forzar nueva página para que la tabla no se corte
+    # --- SECCIÓN 3: CIERRE DE FAENA (Control de Salto de Página) ---
+    # Si estamos muy abajo en la hoja (ej. > 180mm), creamos nueva página para evitar corte
+    if pdf.get_y() > 180:
+        pdf.add_page()
+    else:
+        pdf.ln(5)
 
     pdf.section_title("3. ANALISIS DE CIERRE DE FAENA (Ejemplo: 1.000 MR)")
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, "Simulacion de resultado para un lote estandar de 1.000 Metros Ruma.")
-    pdf.ln(2)
+    pdf.multi_cell(0, 5, "Simulacion de resultado para un lote estandar de 1.000 Metros Ruma, usando productividad real actual.")
+    pdf.ln(4)
 
     lote_ex = 1000.0
-    prod_sys_h = kpis['mr_h'] / div_h
-    prod_sys_f = kpis['mr_f'] / div_f
     
-    hrs_h = lote_ex / prod_sys_h if prod_sys_h > 0 else 0
-    hrs_f = lote_ex / prod_sys_f if prod_sys_f > 0 else 0
+    # Cálculo usando las productividades REALES pasadas por 'kpis'
+    # Evita división por cero si la productividad es 0
+    hrs_h = lote_ex / mr_h_hr_real if mr_h_hr_real > 0 else 0
+    hrs_f = lote_ex / mr_f_hr_real if mr_f_hr_real > 0 else 0
     
+    # Costo usando costo hora REAL
     cost_lote = (hrs_h * kpis['cost_sys_hr_h']) + (hrs_f * kpis['cost_sys_hr_f'])
+    
     inc_lote = lote_ex * (state['price_h'] + state['price_f'])
     prof_lote = inc_lote - cost_lote
     marg_lote = (prof_lote / inc_lote * 100) if inc_lote > 0 else 0
@@ -596,7 +603,7 @@ with tab_faena:
         </div>
         """, unsafe_allow_html=True)
 
-# --- GENERACIÓN PDF ---
+# --- GENERACIÓN PDF (Data Prep - AHORA CON DATOS EXACTOS) ---
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
     'inc_total': inc_total, 'cost_total': cost_total_mes_real, 'prof_total': prof_total,
@@ -605,7 +612,10 @@ pdf_kpis = {
     'inc_h_mes': inc_h_mes, 'cost_h_mes': cost_h_total_mes_real, 'prof_h_mes': prof_h_mes,
     'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_total_mes_real, 'prof_f_mes': prof_f_mes,
     'cost_sys_hr_h': cost_h_hr,
-    'cost_sys_hr_f': cost_f_hr
+    'cost_sys_hr_f': cost_f_hr,
+    # NUEVO: Pasamos los valores horarios exactos
+    'mr_h_hr': mr_h_hr,
+    'mr_f_hr': mr_f_hr
 }
 
 with st.sidebar:
