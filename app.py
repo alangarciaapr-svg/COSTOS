@@ -110,22 +110,29 @@ def calc_price(cost, margin_pct):
     factor = 1 - (margin_pct / 100.0)
     return cost / factor if factor > 0 else 0
 
-# --- 3. MOTOR PDF GRÁFICO ---
+# --- 3. MOTOR PDF GRÁFICO (RENOVADO PROFESIONAL) ---
 class PDF_Pro(FPDF):
     def header(self):
-        self.set_fill_color(30, 41, 59)
-        self.rect(0, 0, 210, 45, 'F')
-        self.set_font('Arial', 'B', 14)
+        # Fondo Azul Corporativo
+        self.set_fill_color(30, 58, 138) # #1e3a8a
+        self.rect(0, 0, 297, 35, 'F') # A4 Landscape width approx 297
+        
+        # Título
+        self.set_font('Arial', 'B', 16)
         self.set_text_color(255, 255, 255)
-        self.set_xy(10, 12)
+        self.set_xy(10, 10)
         self.cell(0, 10, 'SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.', 0, 1, 'L')
-        self.set_font('Arial', '', 10)
+        
+        # Subtítulo
+        self.set_font('Arial', '', 11)
         self.set_text_color(203, 213, 225)
-        self.cell(0, 5, 'INFORME DE GESTION: COSTOS V/S PRODUCCION', 0, 1, 'L')
-        self.set_xy(150, 15)
+        self.cell(0, 5, 'REPORTE INTEGRAL: COSTOS, TARIFAS Y RESULTADOS', 0, 1, 'L')
+        
+        # Fecha
+        self.set_xy(170, 12)
         self.set_font('Arial', 'B', 10)
-        self.cell(50, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
-        self.ln(25)
+        self.cell(30, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
+        self.ln(15)
 
     def footer(self):
         self.set_y(-15)
@@ -133,106 +140,131 @@ class PDF_Pro(FPDF):
         self.set_text_color(128, 128, 128)
         self.cell(0, 10, f'Pagina {self.page_no()}', 0, 0, 'C')
 
-    def chapter_title(self, label):
-        self.set_fill_color(241, 245, 249)
-        self.set_text_color(30, 41, 59)
-        self.set_font('Arial', 'B', 12)
-        self.cell(0, 10, f"  {label}", 0, 1, 'L', 1)
+    def section_title(self, title):
+        self.set_font('Arial', 'B', 14)
+        self.set_text_color(30, 58, 138)
+        self.cell(0, 10, title, 0, 1, 'L')
+        self.set_draw_color(30, 58, 138)
+        self.set_line_width(0.5)
+        self.line(10, self.get_y(), 200, self.get_y())
         self.ln(5)
 
-    def draw_financial_bar(self, label, income, cost, y_pos):
-        self.set_xy(10, y_pos)
-        self.set_font('Arial', 'B', 9)
-        self.set_text_color(50, 50, 50)
-        self.cell(30, 6, label, 0, 0)
+    def kp_card(self, label, value, sublabel, x, y, w=45, h=25, is_money=True):
+        self.set_xy(x, y)
+        self.set_fill_color(248, 250, 252)
+        self.set_draw_color(203, 213, 225)
+        self.rect(x, y, w, h, 'DF')
         
-        max_width = 100
-        scale = max_width / (income * 1.2) if income > 0 else 1
-        w_inc = income * scale
-        w_cost = cost * scale
+        self.set_xy(x, y + 2)
+        self.set_font('Arial', 'B', 8)
+        self.set_text_color(100, 116, 139)
+        self.cell(w, 5, label, 0, 1, 'C')
         
-        self.set_fill_color(59, 130, 246)
-        self.rect(45, y_pos, w_inc, 5, 'F')
-        self.set_fill_color(239, 68, 68)
-        self.rect(45, y_pos + 6, w_cost, 5, 'F')
+        self.set_font('Arial', 'B', 12)
+        self.set_text_color(15, 23, 42)
+        val_str = fmt_money(value) if is_money else value
+        self.cell(w, 8, val_str, 0, 1, 'C')
         
-        self.set_xy(45 + w_inc + 2, y_pos - 1)
-        self.set_font('Arial', '', 8)
-        self.cell(30, 6, f"Venta: {fmt_money(income)}", 0, 1)
-        
-        self.set_xy(45 + w_cost + 2, y_pos + 5)
-        self.cell(30, 6, f"Costo: {fmt_money(cost)}", 0, 1)
-        
-        profit = income - cost
-        margin = (profit / income * 100) if income > 0 else 0
-        self.set_xy(160, y_pos + 2)
-        self.set_font('Arial', 'B', 10)
-        if profit >= 0:
-            self.set_text_color(22, 163, 74)
-            self.cell(30, 6, f"+ {margin:.1f}%", 0, 0, 'R')
-        else:
-            self.set_text_color(220, 38, 38)
-            self.cell(30, 6, f"{margin:.1f}%", 0, 0, 'R')
+        self.set_font('Arial', '', 7)
+        self.set_text_color(22, 163, 74) # Green
+        self.cell(w, 5, sublabel, 0, 1, 'C')
 
-    def kpi_grid(self, data):
-        self.set_font('Arial', '', 10)
-        self.set_text_color(0, 0, 0)
+    def nice_table(self, header, data, col_widths):
+        self.set_font('Arial', 'B', 9)
+        self.set_fill_color(226, 232, 240)
+        self.set_text_color(30, 41, 59)
+        self.set_draw_color(203, 213, 225)
+        
+        # Header
+        for i, h in enumerate(header):
+            self.cell(col_widths[i], 8, h, 1, 0, 'C', 1)
+        self.ln()
+        
+        # Data
+        self.set_font('Arial', '', 9)
+        self.set_text_color(51, 65, 85)
+        fill = False
         for row in data:
-            self.cell(60, 8, row[0], 1)
-            self.cell(40, 8, row[1], 1, 0, 'R')
-            self.cell(40, 8, row[2], 1, 0, 'R')
-            self.cell(40, 8, row[3], 1, 0, 'R')
+            self.set_fill_color(248, 250, 252) if fill else self.set_fill_color(255, 255, 255)
+            for i, d in enumerate(row):
+                align = 'L' if i == 0 else 'R'
+                self.cell(col_widths[i], 8, str(d), 1, 0, align, fill)
             self.ln()
+            fill = not fill
 
 def create_pro_pdf(state, kpis):
     pdf = PDF_Pro()
     pdf.add_page()
-    
-    pdf.chapter_title("1. RESUMEN EJECUTIVO (SISTEMA)")
-    pdf.ln(2)
-    
-    pdf.set_fill_color(226, 232, 240)
-    pdf.set_font('Arial', 'B', 9)
-    pdf.cell(60, 8, "Escala de Tiempo", 1, 0, 'C', 1)
-    pdf.cell(40, 8, "Ingreso Total", 1, 0, 'C', 1)
-    pdf.cell(40, 8, "Costo Total", 1, 0, 'C', 1)
-    pdf.cell(40, 8, "Utilidad", 1, 0, 'C', 1)
-    pdf.ln()
-    
-    data_gen = [
-        ["Por Hora Operativa", fmt_money(kpis['inc_sys_hr']), fmt_money(kpis['cost_sys_hr']), fmt_money(kpis['prof_sys_hr'])],
-        ["Por Dia (Turno)", fmt_money(kpis['inc_sys_day']), fmt_money(kpis['cost_sys_day']), fmt_money(kpis['prof_sys_day'])],
-        ["Proyeccion Mensual", fmt_money(kpis['inc_total']), fmt_money(kpis['cost_total']), fmt_money(kpis['prof_total'])]
+
+    # --- SECCIÓN 1: PARÁMETROS CONFIGURADOS ---
+    pdf.section_title("1. PARÁMETROS DE OPERACIÓN")
+    pdf.set_font('Arial', '', 9)
+    pdf.cell(0, 5, "Resumen de las variables utilizadas para el cálculo de costos y tarifas.", 0, 1)
+    pdf.ln(3)
+
+    # Tabla de parámetros
+    params_header = ["Variable", "Harvester", "Forwarder", "Sistema Total"]
+    params_data = [
+        ["Dias Operativos", f"{state['h_days']}", f"{state['f_days']}", "-"],
+        ["Horas por Turno", f"{state['h_hours']}", f"{state['f_hours']}", "-"],
+        ["Productividad (MR/hr)", f"{kpis['mr_h']/max(1, state['h_days']*state['h_hours']):.1f}", f"{kpis['mr_f']/max(1, state['f_days']*state['f_hours']):.1f}", "-"],
+        ["Costo Operativo Mensual", fmt_money(kpis['cost_h_mes']), fmt_money(kpis['cost_f_mes']), fmt_money(kpis['cost_total'])],
+        ["Tarifa Venta ($/MR)", fmt_money(state['price_h']), fmt_money(state['price_f']), fmt_money(state['price_h']+state['price_f'])]
     ]
-    pdf.kpi_grid(data_gen)
-    pdf.ln(5)
+    pdf.nice_table(params_header, params_data, [50, 40, 40, 40])
+    pdf.ln(10)
+
+    # --- SECCIÓN 2: RESULTADOS FINANCIEROS (MENSUAL) ---
+    pdf.section_title("2. PROYECCIÓN MENSUAL (ESTADO DE RESULTADOS)")
     
-    pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 10, "Grafico de Rentabilidad Mensual:", 0, 1)
-    pdf.draw_financial_bar("SISTEMA TOTAL", kpis['inc_total'], kpis['cost_total'], pdf.get_y())
-    pdf.ln(20)
+    # KPIs visuales (Tarjetas)
+    y_start = pdf.get_y()
+    pdf.kp_card("INGRESO TOTAL", kpis['inc_total'], "Mensual Estimado", 10, y_start)
+    pdf.kp_card("COSTO TOTAL", kpis['cost_total'], "Directo + Indirecto", 60, y_start)
+    pdf.kp_card("UTILIDAD", kpis['prof_total'], f"Margen: {kpis['margin_total']:.1f}%", 110, y_start)
     
-    pdf.chapter_title("2. DESGLOSE POR MAQUINA")
+    pdf.ln(30)
+    
+    # Tabla Detallada
+    fin_header = ["Concepto", "Ingreso ($)", "Costo Total ($)", "Utilidad ($)", "Margen %"]
+    fin_data = [
+        ["HARVESTER", fmt_money(kpis['inc_h_mes']), fmt_money(kpis['cost_h_mes']), fmt_money(kpis['prof_h_mes']), f"{kpis['margin_h']:.1f}%"],
+        ["FORWARDER", fmt_money(kpis['inc_f_mes']), fmt_money(kpis['cost_f_mes']), fmt_money(kpis['prof_f_mes']), f"{kpis['margin_f']:.1f}%"],
+        ["TOTAL SISTEMA", fmt_money(kpis['inc_total']), fmt_money(kpis['cost_total']), fmt_money(kpis['prof_total']), f"{kpis['margin_total']:.1f}%"]
+    ]
+    pdf.nice_table(fin_header, fin_data, [50, 35, 35, 35, 25])
+    pdf.ln(10)
+
+    # --- SECCIÓN 3: EJEMPLO DE FAENA TIPO ---
+    pdf.section_title("3. ANÁLISIS DE CIERRE DE FAENA (Ejemplo: 1.000 MR)")
+    pdf.set_font('Arial', '', 9)
+    pdf.multi_cell(0, 5, "Simulación de resultado para un lote estándar de 1.000 Metros Ruma, basado en los rendimientos horarios actuales.")
     pdf.ln(2)
+
+    # Cálculos 'al vuelo' para el PDF para asegurar que siempre haya datos
+    lote_ex = 1000.0
+    prod_sys_h = kpis['mr_h'] / max(1, state['h_days']*state['h_hours'])
+    prod_sys_f = kpis['mr_f'] / max(1, state['f_days']*state['f_hours'])
     
-    pdf.draw_financial_bar("HARVESTER", kpis['inc_h_mes'], kpis['cost_h_mes'], pdf.get_y())
-    pdf.ln(15)
-    pdf.draw_financial_bar("FORWARDER", kpis['inc_f_mes'], kpis['cost_f_mes'], pdf.get_y())
-    pdf.ln(15)
+    hrs_h = lote_ex / prod_sys_h if prod_sys_h > 0 else 0
+    hrs_f = lote_ex / prod_sys_f if prod_sys_f > 0 else 0
     
-    pdf.set_fill_color(226, 232, 240)
-    pdf.set_font('Arial', 'B', 9)
-    pdf.cell(60, 8, "Maquina", 1, 0, 'C', 1)
-    pdf.cell(40, 8, "Produccion (MR)", 1, 0, 'C', 1)
-    pdf.cell(40, 8, "Tarifa ($/MR)", 1, 0, 'C', 1)
-    pdf.cell(40, 8, "Utilidad Neta", 1, 0, 'C', 1)
-    pdf.ln()
-    
-    pdf.kpi_grid([
-        ["Harvester", f"{kpis['mr_h']:,.0f}", fmt_money(state['price_h']), fmt_money(kpis['prof_h_mes'])],
-        ["Forwarder", f"{kpis['mr_f']:,.0f}", fmt_money(state['price_f']), fmt_money(kpis['prof_f_mes'])]
-    ])
-    
+    cost_lote = (hrs_h * kpis['cost_sys_hr_h']) + (hrs_f * kpis['cost_sys_hr_f'])
+    inc_lote = lote_ex * (state['price_h'] + state['price_f'])
+    prof_lote = inc_lote - cost_lote
+    marg_lote = (prof_lote / inc_lote * 100) if inc_lote > 0 else 0
+
+    faena_header = ["Métrica", "Valor Calculado"]
+    faena_data = [
+        ["Volumen Evaluado", "1.000 MR"],
+        ["Horas Máquina Requeridas", f"H: {hrs_h:.1f} hrs | F: {hrs_f:.1f} hrs"],
+        ["Facturación Estimada", fmt_money(inc_lote)],
+        ["Costo Operativo Real", fmt_money(cost_lote)],
+        ["UTILIDAD FAENA", fmt_money(prof_lote)],
+        ["MARGEN OPERACIONAL", f"{marg_lote:.1f}%"]
+    ]
+    pdf.nice_table(faena_header, faena_data, [80, 80])
+
     return pdf.output(dest='S').encode('latin-1', 'replace')
 
 class NumpyEncoder(json.JSONEncoder):
@@ -565,25 +597,22 @@ with tab_faena:
         </div>
         """, unsafe_allow_html=True)
 
-# --- GENERACIÓN PDF ---
+# --- GENERACIÓN PDF (Data Prep) ---
 pdf_kpis = {
     'mr_h': mr_h_hr * h_hours * h_dias, 'mr_f': mr_f_hr * f_hours * f_dias,
     'inc_total': inc_total, 'cost_total': cost_total_mes_real, 'prof_total': prof_total,
     'margin_total': margin_total,
+    'margin_h': margin_h, 'margin_f': margin_f,
     'inc_h_mes': inc_h_mes, 'cost_h_mes': cost_h_total_mes_real, 'prof_h_mes': prof_h_mes,
     'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_total_mes_real, 'prof_f_mes': prof_f_mes,
-    'inc_sys_hr': inc_h_hr + inc_f_hr, 
-    'cost_sys_hr': cost_h_hr + cost_f_hr,
-    'prof_sys_hr': (inc_h_hr + inc_f_hr) - (cost_h_hr + cost_f_hr),
-    'inc_sys_day': inc_h_day + inc_f_day,
-    'cost_sys_day': (cost_h_total_mes_real/h_dias if h_dias>0 else 0) + (cost_f_total_mes_real/f_dias if f_dias>0 else 0),
-    'prof_sys_day': (inc_h_day + inc_f_day) - ((cost_h_total_mes_real/h_dias if h_dias>0 else 0) + (cost_f_total_mes_real/f_dias if f_dias>0 else 0))
+    'cost_sys_hr_h': cost_h_hr,
+    'cost_sys_hr_f': cost_f_hr
 }
 
 with st.sidebar:
     try:
         pdf_bytes = create_pro_pdf(st.session_state, pdf_kpis)
-        st.download_button("📄 DESCARGAR INFORME PDF", data=pdf_bytes, file_name=f"Informe_Galvez_Genova_{datetime.now().strftime('%Y%m%d')}.pdf", mime='application/pdf', type="primary")
+        st.download_button("📄 DESCARGAR INFORME PDF", data=pdf_bytes, file_name=f"Reporte_Galvez_{datetime.now().strftime('%Y%m%d')}.pdf", mime='application/pdf', type="primary")
     except Exception as e: st.error(f"Error PDF: {e}")
 
 # Guardado automático al final
