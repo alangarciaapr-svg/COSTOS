@@ -62,26 +62,27 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
-    /* Estilos para Cierre de Faena */
+    /* Estilos Cierre Faena */
     .faena-metric {
         font-size: 1.1em;
         color: #475569;
         margin-bottom: 5px;
         display: flex;
         justify-content: space-between;
+        border-bottom: 1px dashed #e2e8f0;
+        padding-bottom: 4px;
     }
     .faena-val {
         font-weight: 700;
         color: #0f172a;
     }
-    .faena-total-row {
-        margin-top: 15px;
-        padding-top: 10px;
-        border-top: 2px dashed #cbd5e1;
-        font-size: 1.3em;
-        font-weight: 800;
+    .faena-result-box {
+        background-color: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 10px;
+        padding: 15px;
         text-align: center;
-        color: #166534;
+        margin-top: 20px;
     }
     
     /* --- SIDEBAR BLANCO PROFESIONAL --- */
@@ -105,7 +106,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v41_faena_logic.json'
+CONFIG_FILE = 'forest_config_v42_faena_update.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -280,8 +281,8 @@ def init_key(key, default_value):
 
 init_key('price_h', 6500.0)
 init_key('price_f', 5000.0)
-init_key('pct_ind_h', 50.0) 
-init_key('pct_ind_f', 50.0) 
+init_key('pct_ind_h', 50.0)
+init_key('pct_ind_f', 50.0)
 init_key('conv_factor', 2.44)
 init_key('target_company_margin', 30.0)
 init_key('h_days', 28)
@@ -304,7 +305,6 @@ with st.sidebar:
         
         total_price_val = st.number_input("Tarifa Total Sistema ($/MR)", value=float(current_total_price), step=100.0)
         
-        # Calcular split actual
         current_h_pct_price = (st.session_state['price_h'] / total_price_val * 100) if total_price_val > 0 else 60.0
         h_split_price_pct = st.slider("Distribución Venta: % a Harvester", 0, 100, int(current_h_pct_price))
         
@@ -556,29 +556,30 @@ with tab_strat:
         </div>
         """, unsafe_allow_html=True)
 
-# --- TAB FAENA (MODIFICADA v41) ---
+# --- TAB FAENA (LOGICA AJUSTADA v42) ---
 with tab_faena:
     st.header("🧮 Cierre de Faena")
-    st.markdown("Cálculo de tiempos y rentabilidad basado en el **total producido**.")
-    
-    c_lote1, c_lote2 = st.columns(2)
-    with c_lote1:
-        mr_lote = st.number_input("Total MR Producidos", value=1000.0, step=100.0)
+    st.markdown("Ingresa el **Total de Metros Ruma (MR)** de una faena para ver su resultado específico.")
+    mr_lote = st.number_input("Total MR Faena", value=1000.0, step=100.0)
     
     if mr_lote > 0:
         st.divider()
-        # 1. Calculo de Tiempos
-        req_hrs_h = mr_lote / mr_h_hr if mr_h_hr > 0 else 0
-        req_days_h = req_hrs_h / h_hours if h_hours > 0 else 0
         
+        # 1. Calculo Tiempo (Total MR / Productividad MR por hora)
+        # Esto nos da las horas máquina que se necesitaron para hacer ese volumen
+        req_hrs_h = mr_lote / mr_h_hr if mr_h_hr > 0 else 0
         req_hrs_f = mr_lote / mr_f_hr if mr_f_hr > 0 else 0
+        
+        # Días efectivos (Horas Totales / Horas Turno Maquina)
+        req_days_h = req_hrs_h / h_hours if h_hours > 0 else 0
         req_days_f = req_hrs_f / f_hours if f_hours > 0 else 0
         
-        # 2. Ingresos (Repartidos según split de tarifa)
+        # 2. Generado (Venta)
+        # Se usa la tarifa por maquina definida en el sidebar
         rev_lote_h = mr_lote * st.session_state['price_h']
         rev_lote_f = mr_lote * st.session_state['price_f']
         
-        # 3. Costos (Basados en las horas requeridas * costo hora total)
+        # 3. Costo Real (Horas Reales * Costo Hora Real Calculado)
         cost_lote_h = req_hrs_h * cost_h_hr
         cost_lote_f = req_hrs_f * cost_f_hr
         
@@ -592,10 +593,11 @@ with tab_faena:
             st.markdown(f"""
             <div class="machine-card" style="border-top-color:#eab308">
                 <div class="card-header">🚜 Harvester</div>
-                <div class="faena-metric"><span>Tiempo:</span><span class="faena-val">{req_hrs_h:,.1f} hrs ({req_days_h:,.1f} días)</span></div>
-                <div class="faena-metric"><span>Ingreso:</span><span class="faena-val" style="color:#2563eb">{fmt_money(rev_lote_h)}</span></div>
-                <div class="faena-metric"><span>Costo:</span><span class="faena-val" style="color:#dc2626">{fmt_money(cost_lote_h)}</span></div>
-                <div class="faena-total-row">Utilidad: {fmt_money(util_lote_h)}</div>
+                <div class="faena-metric"><span>Prod. Horaria:</span><span class="faena-val">{mr_h_hr:,.1f} MR/hr</span></div>
+                <div class="faena-metric"><span>Tiempo Total:</span><span class="faena-val">{req_hrs_h:,.1f} hrs ({req_days_h:,.1f} días)</span></div>
+                <div class="faena-metric"><span>Generado:</span><span class="faena-val" style="color:#2563eb">{fmt_money(rev_lote_h)}</span></div>
+                <div class="faena-metric"><span>Costo Real:</span><span class="faena-val" style="color:#dc2626">{fmt_money(cost_lote_h)}</span></div>
+                <div class="faena-result-box"><span style="color:#475569; font-weight:600">UTILIDAD:</span><br><span style="font-size:1.4em; font-weight:800; color:{'#166534' if util_lote_h>0 else '#b91c1c'}">{fmt_money(util_lote_h)}</span></div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -603,14 +605,25 @@ with tab_faena:
             st.markdown(f"""
             <div class="machine-card" style="border-top-color:#22c55e">
                 <div class="card-header">🚜 Forwarder</div>
-                <div class="faena-metric"><span>Tiempo:</span><span class="faena-val">{req_hrs_f:,.1f} hrs ({req_days_f:,.1f} días)</span></div>
-                <div class="faena-metric"><span>Ingreso:</span><span class="faena-val" style="color:#2563eb">{fmt_money(rev_lote_f)}</span></div>
-                <div class="faena-metric"><span>Costo:</span><span class="faena-val" style="color:#dc2626">{fmt_money(cost_lote_f)}</span></div>
-                <div class="faena-total-row">Utilidad: {fmt_money(util_lote_f)}</div>
+                <div class="faena-metric"><span>Prod. Horaria:</span><span class="faena-val">{mr_f_hr:,.1f} MR/hr</span></div>
+                <div class="faena-metric"><span>Tiempo Total:</span><span class="faena-val">{req_hrs_f:,.1f} hrs ({req_days_f:,.1f} días)</span></div>
+                <div class="faena-metric"><span>Generado:</span><span class="faena-val" style="color:#2563eb">{fmt_money(rev_lote_f)}</span></div>
+                <div class="faena-metric"><span>Costo Real:</span><span class="faena-val" style="color:#dc2626">{fmt_money(cost_lote_f)}</span></div>
+                <div class="faena-result-box"><span style="color:#475569; font-weight:600">UTILIDAD:</span><br><span style="font-size:1.4em; font-weight:800; color:{'#166534' if util_lote_f>0 else '#b91c1c'}">{fmt_money(util_lote_f)}</span></div>
             </div>
             """, unsafe_allow_html=True)
             
-        st.markdown(f"<div style='text-align:center; padding:20px; background:#dcfce7; border-radius:10px; margin-top:20px'><h2 style='color:#166534; margin:0'>UTILIDAD TOTAL DEL LOTE: {fmt_money(util_lote_h + util_lote_f)}</h2></div>", unsafe_allow_html=True)
+        total_util_faena = util_lote_h + util_lote_f
+        total_generated = rev_lote_h + rev_lote_f
+        margin_faena = (total_util_faena / total_generated * 100) if total_generated > 0 else 0
+        
+        st.markdown(f"""
+        <div style='text-align:center; padding:25px; background:#1e293b; border-radius:12px; margin-top:20px; color:white'>
+            <h3 style='color:#94a3b8; margin:0; font-size:1.2em'>RESULTADO CONSOLIDADO FAENA</h3>
+            <h1 style='color:#4ade80; margin:10px 0; font-size:2.5em'>{fmt_money(total_util_faena)}</h1>
+            <div style='font-size:1.1em; font-weight:600; color:#cbd5e1'>Margen Operacional: {margin_faena:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # --- GENERACIÓN PDF ---
 pdf_kpis = {
