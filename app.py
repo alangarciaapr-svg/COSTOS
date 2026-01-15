@@ -14,6 +14,9 @@ try:
 except ImportError:
     st.error("⚠️ Librería fpdf no instalada. Agrega 'fpdf' a requirements.txt")
 
+# Nombre del archivo de logo esperado (debe estar en la misma carpeta)
+LOGO_FILE = "logo.png" 
+
 # --- 1. CONFIGURACIÓN Y ESTILO ---
 st.set_page_config(
     page_title="COSTOS / PRODUCCION SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.", 
@@ -101,29 +104,42 @@ def fmt_money(x):
     if x is None: return "$ 0"
     return f"$ {x:,.0f}".replace(",", ".")
 
-# --- 3. MOTOR PDF GRÁFICO (CORREGIDO) ---
+# --- 3. MOTOR PDF GRÁFICO (CON LOGO Y DATOS REALES) ---
 class PDF_Pro(FPDF):
     def header(self):
-        # Fondo Azul Corporativo - A4 Vertical (210mm ancho)
+        # Fondo Azul Corporativo
         self.set_fill_color(30, 58, 138) # #1e3a8a
-        self.rect(0, 0, 210, 35, 'F') 
+        self.rect(0, 0, 210, 40, 'F') # Aumentado un poco la altura para el logo
         
+        # LOGO EMPRESA (Si existe)
+        if os.path.exists(LOGO_FILE):
+            # Insertar imagen (x, y, w). Ajusta 'w' según el tamaño de tu logo.
+            try:
+                self.image(LOGO_FILE, x=10, y=5, w=30)
+                title_x_offset = 45 # Desplazar título si hay logo
+            except:
+                title_x_offset = 10
+        else:
+            title_x_offset = 10
+
         # Título
         self.set_font('Arial', 'B', 14) 
         self.set_text_color(255, 255, 255)
-        self.set_xy(10, 10)
+        self.set_xy(title_x_offset, 12)
         self.cell(0, 10, 'SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.', 0, 1, 'L')
         
         # Subtítulo
         self.set_font('Arial', '', 10)
         self.set_text_color(203, 213, 225)
+        self.set_xy(title_x_offset, 19)
         self.cell(0, 5, 'REPORTE INTEGRAL: COSTOS, TARIFAS Y RESULTADOS', 0, 1, 'L')
         
         # Fecha
-        self.set_xy(160, 12)
+        self.set_xy(160, 15)
         self.set_font('Arial', 'B', 10)
+        self.set_text_color(255, 255, 255)
         self.cell(40, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
-        self.ln(20) # Espacio seguro después del header
+        self.ln(25) # Espacio seguro después del header
 
     def footer(self):
         self.set_y(-15)
@@ -141,34 +157,28 @@ class PDF_Pro(FPDF):
         self.ln(6)
 
     def kp_card(self, label, value, sublabel, x, y, w=45, h=25, is_money=True):
-        # 1. Dibujar rectángulo
         self.set_xy(x, y)
         self.set_fill_color(248, 250, 252)
         self.set_draw_color(203, 213, 225)
         self.rect(x, y, w, h, 'DF')
         
-        # 2. Etiqueta superior (Label)
-        # Usamos coordenadas absolutas para evitar el salto de linea al margen izquierdo
-        self.set_xy(x, y + 3) 
+        self.set_xy(x, y + 3)
         self.set_font('Arial', 'B', 8)
         self.set_text_color(100, 116, 139)
         self.cell(w, 5, label, 0, 0, 'C')
         
-        # 3. Valor Principal
         self.set_xy(x, y + 9)
         self.set_font('Arial', 'B', 11) 
         self.set_text_color(15, 23, 42)
         val_str = fmt_money(value) if is_money else str(value)
         self.cell(w, 8, val_str, 0, 0, 'C')
         
-        # 4. Subetiqueta
         self.set_xy(x, y + 17)
         self.set_font('Arial', '', 7)
         self.set_text_color(22, 163, 74) # Green
         self.cell(w, 5, sublabel, 0, 0, 'C')
 
     def nice_table(self, header, data, col_widths):
-        # Cabecera
         self.set_font('Arial', 'B', 9)
         self.set_fill_color(226, 232, 240)
         self.set_text_color(30, 41, 59)
@@ -178,7 +188,6 @@ class PDF_Pro(FPDF):
             self.cell(col_widths[i], 8, h, 1, 0, 'C', 1)
         self.ln()
         
-        # Datos
         self.set_font('Arial', '', 9)
         self.set_text_color(51, 65, 85)
         
@@ -196,6 +205,8 @@ def create_pro_pdf(state, kpis):
     # --- RECUPERAR DATOS EXACTOS DE LA APP ---
     mr_h_hr_real = kpis['mr_h_hr'] 
     mr_f_hr_real = kpis['mr_f_hr']
+    # Recuperamos el valor del input del usuario
+    lote_usuario = kpis.get('mr_lote_input', 1000.0) 
     
     # --- SECCIÓN 1: PARÁMETROS CONFIGURADOS ---
     pdf.section_title("1. PARAMETROS DE OPERACION")
@@ -217,17 +228,13 @@ def create_pro_pdf(state, kpis):
     # --- SECCIÓN 2: RESULTADOS FINANCIEROS (MENSUAL) ---
     pdf.section_title("2. PROYECCION MENSUAL")
     
-    # Tarjetas (KPIs)
     y_start = pdf.get_y()
-    # Coordenadas X fijas para evitar superposición: 10, 60, 110
     pdf.kp_card("INGRESO TOTAL", kpis['inc_total'], "Mensual Estimado", 10, y_start)
     pdf.kp_card("COSTO TOTAL", kpis['cost_total'], "Directo + Indirecto", 60, y_start)
     pdf.kp_card("UTILIDAD", kpis['prof_total'], f"Margen: {kpis['margin_total']:.1f}%", 110, y_start)
     
-    # Aseguramos bajar lo suficiente para que no se superponga la siguiente tabla
     pdf.set_y(y_start + 30) 
     
-    # Tabla Detallada
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(0, 8, "Detalle del Estado de Resultados:", 0, 1)
     
@@ -240,31 +247,30 @@ def create_pro_pdf(state, kpis):
     pdf.nice_table(fin_header, fin_data, [50, 35, 35, 35, 25])
     pdf.ln(10)
 
-    # --- SECCIÓN 3: CIERRE DE FAENA ---
+    # --- SECCIÓN 3: CIERRE DE FAENA (Sincronizado con App) ---
     if pdf.get_y() > 180:
         pdf.add_page()
     else:
         pdf.ln(5)
 
-    pdf.section_title("3. ANALISIS DE CIERRE DE FAENA (Ejemplo: 1.000 MR)")
+    # Usamos el valor real del input
+    pdf.section_title(f"3. ANALISIS DE CIERRE DE FAENA (Lote: {lote_usuario:,.0f} MR)")
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, "Simulacion de resultado para un lote estandar de 1.000 MR.")
+    pdf.multi_cell(0, 5, f"Calculo especifico para un volumen de {lote_usuario:,.0f} MR, basado en los costos y tarifas actuales.")
     pdf.ln(4)
-
-    lote_ex = 1000.0
     
-    hrs_h = lote_ex / mr_h_hr_real if mr_h_hr_real > 0 else 0
-    hrs_f = lote_ex / mr_f_hr_real if mr_f_hr_real > 0 else 0
+    hrs_h = lote_usuario / mr_h_hr_real if mr_h_hr_real > 0 else 0
+    hrs_f = lote_usuario / mr_f_hr_real if mr_f_hr_real > 0 else 0
     
     cost_lote = (hrs_h * kpis['cost_sys_hr_h']) + (hrs_f * kpis['cost_sys_hr_f'])
     
-    inc_lote = lote_ex * (state['price_h'] + state['price_f'])
+    inc_lote = lote_usuario * (state['price_h'] + state['price_f'])
     prof_lote = inc_lote - cost_lote
     marg_lote = (prof_lote / inc_lote * 100) if inc_lote > 0 else 0
 
     faena_header = ["Metrica", "Valor Calculado"]
     faena_data = [
-        ["Volumen Evaluado", "1.000 MR"],
+        ["Volumen Evaluado", f"{lote_usuario:,.0f} MR"],
         ["Horas Maquina Requeridas", f"H: {hrs_h:.1f} hrs | F: {hrs_f:.1f} hrs"],
         ["Facturacion Estimada", fmt_money(inc_lote)],
         ["Costo Operativo Real", fmt_money(cost_lote)],
@@ -328,6 +334,10 @@ init_key('cost_total_ind', 5000000.0)
 
 # --- 5. RENDERIZADO DE INPUTS ---
 with st.sidebar:
+    # --- LOGO APP ---
+    if os.path.exists(LOGO_FILE):
+        st.image(LOGO_FILE, use_column_width=True)
+    
     st.markdown("### ⚙️ PANEL DE GESTIÓN")
     
     with st.expander("💵 Tarifas Venta (Sistema)", expanded=True):
@@ -543,6 +553,8 @@ with tab_dash:
 with tab_faena:
     st.header("🧮 Cierre de Faena")
     st.markdown("Ingresa el **Total de Metros Ruma (MR)** de una faena para ver su resultado específico.")
+    
+    # IMPORTANTE: Capturamos el valor aquí
     mr_lote = st.number_input("Total MR Faena", value=1000.0, step=100.0)
     
     if mr_lote > 0:
@@ -615,9 +627,10 @@ pdf_kpis = {
     'inc_f_mes': inc_f_mes, 'cost_f_mes': cost_f_total_mes_real, 'prof_f_mes': prof_f_mes,
     'cost_sys_hr_h': cost_h_hr,
     'cost_sys_hr_f': cost_f_hr,
-    # NUEVO: Pasamos los valores horarios exactos
+    # Datos para sincronización exacta
     'mr_h_hr': mr_h_hr,
-    'mr_f_hr': mr_f_hr
+    'mr_f_hr': mr_f_hr,
+    'mr_lote_input': mr_lote # Valor ingresado por el usuario
 }
 
 with st.sidebar:
