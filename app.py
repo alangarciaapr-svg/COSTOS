@@ -6,7 +6,6 @@ import os
 import plotly.express as px
 import plotly.graph_objects as go
 import io
-import requests
 from datetime import datetime
 
 # Intentamos importar FPDF
@@ -110,28 +109,28 @@ def calc_price(cost, margin_pct):
     factor = 1 - (margin_pct / 100.0)
     return cost / factor if factor > 0 else 0
 
-# --- 3. MOTOR PDF GRÁFICO (RENOVADO PROFESIONAL) ---
+# --- 3. MOTOR PDF GRÁFICO (CORREGIDO) ---
 class PDF_Pro(FPDF):
     def header(self):
-        # Fondo Azul Corporativo
+        # Fondo Azul Corporativo - Corregido ancho a 210 para A4 Vertical
         self.set_fill_color(30, 58, 138) # #1e3a8a
-        self.rect(0, 0, 297, 35, 'F') # A4 Landscape width approx 297
+        self.rect(0, 0, 210, 35, 'F') 
         
         # Título
-        self.set_font('Arial', 'B', 16)
+        self.set_font('Arial', 'B', 14) # Ajustado ligeramente tamaño
         self.set_text_color(255, 255, 255)
         self.set_xy(10, 10)
         self.cell(0, 10, 'SOCIEDAD MADERERA GALVEZ Y DI GENOVA LTDA.', 0, 1, 'L')
         
         # Subtítulo
-        self.set_font('Arial', '', 11)
+        self.set_font('Arial', '', 10)
         self.set_text_color(203, 213, 225)
         self.cell(0, 5, 'REPORTE INTEGRAL: COSTOS, TARIFAS Y RESULTADOS', 0, 1, 'L')
         
         # Fecha
-        self.set_xy(170, 12)
+        self.set_xy(160, 12)
         self.set_font('Arial', 'B', 10)
-        self.cell(30, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
+        self.cell(40, 10, datetime.now().strftime('%d/%m/%Y'), 0, 1, 'R')
         self.ln(15)
 
     def footer(self):
@@ -160,7 +159,7 @@ class PDF_Pro(FPDF):
         self.set_text_color(100, 116, 139)
         self.cell(w, 5, label, 0, 1, 'C')
         
-        self.set_font('Arial', 'B', 12)
+        self.set_font('Arial', 'B', 11) # Tamaño ajustado para evitar overflow
         self.set_text_color(15, 23, 42)
         val_str = fmt_money(value) if is_money else value
         self.cell(w, 8, val_str, 0, 1, 'C')
@@ -186,9 +185,13 @@ class PDF_Pro(FPDF):
         fill = False
         for row in data:
             self.set_fill_color(248, 250, 252) if fill else self.set_fill_color(255, 255, 255)
+            # FPDF fill parameter expects boolean or 1/0
+            do_fill = 1 if fill else 0
             for i, d in enumerate(row):
                 align = 'L' if i == 0 else 'R'
-                self.cell(col_widths[i], 8, str(d), 1, 0, align, fill)
+                # Truncar textos muy largos si es necesario
+                txt = str(d)
+                self.cell(col_widths[i], 8, txt, 1, 0, align, do_fill)
             self.ln()
             fill = not fill
 
@@ -197,17 +200,22 @@ def create_pro_pdf(state, kpis):
     pdf.add_page()
 
     # --- SECCIÓN 1: PARÁMETROS CONFIGURADOS ---
-    pdf.section_title("1. PARÁMETROS DE OPERACIÓN")
+    pdf.section_title("1. PARAMETROS DE OPERACION")
     pdf.set_font('Arial', '', 9)
-    pdf.cell(0, 5, "Resumen de las variables utilizadas para el cálculo de costos y tarifas.", 0, 1)
+    pdf.cell(0, 5, "Resumen de las variables utilizadas para el calculo de costos y tarifas.", 0, 1)
     pdf.ln(3)
 
     # Tabla de parámetros
     params_header = ["Variable", "Harvester", "Forwarder", "Sistema Total"]
+    
+    # Prevenir division por cero en display
+    div_h = max(1, state['h_days']*state['h_hours'])
+    div_f = max(1, state['f_days']*state['f_hours'])
+
     params_data = [
         ["Dias Operativos", f"{state['h_days']}", f"{state['f_days']}", "-"],
         ["Horas por Turno", f"{state['h_hours']}", f"{state['f_hours']}", "-"],
-        ["Productividad (MR/hr)", f"{kpis['mr_h']/max(1, state['h_days']*state['h_hours']):.1f}", f"{kpis['mr_f']/max(1, state['f_days']*state['f_hours']):.1f}", "-"],
+        ["Productividad (MR/hr)", f"{kpis['mr_h']/div_h:.1f}", f"{kpis['mr_f']/div_f:.1f}", "-"],
         ["Costo Operativo Mensual", fmt_money(kpis['cost_h_mes']), fmt_money(kpis['cost_f_mes']), fmt_money(kpis['cost_total'])],
         ["Tarifa Venta ($/MR)", fmt_money(state['price_h']), fmt_money(state['price_f']), fmt_money(state['price_h']+state['price_f'])]
     ]
@@ -215,7 +223,7 @@ def create_pro_pdf(state, kpis):
     pdf.ln(10)
 
     # --- SECCIÓN 2: RESULTADOS FINANCIEROS (MENSUAL) ---
-    pdf.section_title("2. PROYECCIÓN MENSUAL (ESTADO DE RESULTADOS)")
+    pdf.section_title("2. PROYECCION MENSUAL (ESTADO DE RESULTADOS)")
     
     # KPIs visuales (Tarjetas)
     y_start = pdf.get_y()
@@ -236,15 +244,15 @@ def create_pro_pdf(state, kpis):
     pdf.ln(10)
 
     # --- SECCIÓN 3: EJEMPLO DE FAENA TIPO ---
-    pdf.section_title("3. ANÁLISIS DE CIERRE DE FAENA (Ejemplo: 1.000 MR)")
+    pdf.section_title("3. ANALISIS DE CIERRE DE FAENA (Ejemplo: 1.000 MR)")
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, "Simulación de resultado para un lote estándar de 1.000 Metros Ruma, basado en los rendimientos horarios actuales.")
+    pdf.multi_cell(0, 5, "Simulacion de resultado para un lote estandar de 1.000 Metros Ruma, basado en los rendimientos horarios actuales.")
     pdf.ln(2)
 
-    # Cálculos 'al vuelo' para el PDF para asegurar que siempre haya datos
+    # Cálculos 'al vuelo' para el PDF
     lote_ex = 1000.0
-    prod_sys_h = kpis['mr_h'] / max(1, state['h_days']*state['h_hours'])
-    prod_sys_f = kpis['mr_f'] / max(1, state['f_days']*state['f_hours'])
+    prod_sys_h = kpis['mr_h'] / div_h
+    prod_sys_f = kpis['mr_f'] / div_f
     
     hrs_h = lote_ex / prod_sys_h if prod_sys_h > 0 else 0
     hrs_f = lote_ex / prod_sys_f if prod_sys_f > 0 else 0
@@ -254,11 +262,11 @@ def create_pro_pdf(state, kpis):
     prof_lote = inc_lote - cost_lote
     marg_lote = (prof_lote / inc_lote * 100) if inc_lote > 0 else 0
 
-    faena_header = ["Métrica", "Valor Calculado"]
+    faena_header = ["Metrica", "Valor Calculado"]
     faena_data = [
         ["Volumen Evaluado", "1.000 MR"],
-        ["Horas Máquina Requeridas", f"H: {hrs_h:.1f} hrs | F: {hrs_f:.1f} hrs"],
-        ["Facturación Estimada", fmt_money(inc_lote)],
+        ["Horas Maquina Requeridas", f"H: {hrs_h:.1f} hrs | F: {hrs_f:.1f} hrs"],
+        ["Facturacion Estimada", fmt_money(inc_lote)],
         ["Costo Operativo Real", fmt_money(cost_lote)],
         ["UTILIDAD FAENA", fmt_money(prof_lote)],
         ["MARGEN OPERACIONAL", f"{marg_lote:.1f}%"]
