@@ -62,6 +62,19 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
+    /* Ajuste de Texto para que no se corten cifras */
+    .sim-val {
+        font-size: 1.1em;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .sim-total {
+        font-size: 1.4em; 
+        font-weight: 900;
+        text-align: center;
+        margin-top: 5px;
+    }
+    
     /* --- SIDEBAR BLANCO PROFESIONAL --- */
     section[data-testid="stSidebar"] {
         background-color: #ffffff;
@@ -83,7 +96,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v37_indirect_dist.json'
+CONFIG_FILE = 'forest_config_v38_indirect_logic.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -235,7 +248,6 @@ def load_config():
     return {}
 
 def save_config():
-    # Incluimos los nuevos campos de porcentaje individual
     keys = ["h_days", "h_hours", "f_days", "f_hours", 
             "cost_total_h", "cost_total_f", "cost_total_ind",
             "pct_ind_h", "pct_ind_f", "price_h", "price_f", "conv_factor", "target_company_margin",
@@ -260,7 +272,7 @@ def init_key(key, default_value):
 init_key('price_h', 6500.0)
 init_key('price_f', 5000.0)
 init_key('pct_ind_h', 50.0) # Por defecto 50%
-init_key('pct_ind_f', 50.0) # Por defecto 50%
+init_key('pct_ind_f', 50.0) # El calculo lo ajusta
 init_key('conv_factor', 2.44)
 init_key('target_company_margin', 30.0)
 init_key('h_days', 28)
@@ -294,9 +306,15 @@ with st.sidebar:
         
         st.markdown("---")
         st.markdown("**Distribución Indirectos (%)**")
-        c_pct1, c_pct2 = st.columns(2)
-        st.session_state['pct_ind_h'] = c_pct1.number_input("% a Harv", value=float(st.session_state['pct_ind_h']))
-        st.session_state['pct_ind_f'] = c_pct2.number_input("% a Fwd", value=float(st.session_state['pct_ind_f']))
+        # SLIDER LOGICA 100%
+        h_pct_val = st.slider("Asignación a Harvester", 0, 100, int(st.session_state['pct_ind_h']))
+        st.session_state['pct_ind_h'] = h_pct_val
+        st.session_state['pct_ind_f'] = 100 - h_pct_val
+        
+        # Visualizacion simple
+        c_dist1, c_dist2 = st.columns(2)
+        c_dist1.info(f"🚜 H: {st.session_state['pct_ind_h']}%")
+        c_dist2.info(f"🚜 F: {st.session_state['pct_ind_f']}%")
         
         st.session_state['target_company_margin'] = st.slider("Meta Margen (%)", 0, 60, int(st.session_state['target_company_margin']))
 
@@ -355,7 +373,12 @@ with tab_f:
 hourly_ind_base_24_7 = tot_ind / (30 * 24)
 with tab_ind:
     st.info(f"ℹ️ **Valor Hora Cronológica (Base 30 días / 24 hrs):** {fmt_money(hourly_ind_base_24_7)}")
-    st.caption(f"Distribución Actual: {st.session_state['pct_ind_h']}% a Harvester | {st.session_state['pct_ind_f']}% a Forwarder")
+    
+    # Mostrar dinero asignado
+    asign_h_money = tot_ind * (st.session_state['pct_ind_h']/100)
+    asign_f_money = tot_ind * (st.session_state['pct_ind_f']/100)
+    
+    st.caption(f"Distribución Dinero: {fmt_money(asign_h_money)} a Harvester | {fmt_money(asign_f_money)} a Forwarder")
 
 # Distribución Total Mensual (Para P&L)
 # Se distribuye el monto total mensual según el % definido
