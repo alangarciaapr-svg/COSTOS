@@ -62,27 +62,18 @@ st.markdown("""
         margin-bottom: 10px; font-weight: 800; font-size: 1.1em; color: #334155; text-transform: uppercase;
     }
     
-    /* Estilos Cierre Faena */
+    /* Estilos Simulación y Faena */
+    .sim-val { font-size: 1.1em; font-weight: 700; color: #0f172a; }
+    .sim-total { font-size: 1.4em; font-weight: 900; text-align: center; margin-top: 5px; }
+    
     .faena-metric {
-        font-size: 1.1em;
-        color: #475569;
-        margin-bottom: 5px;
-        display: flex;
-        justify-content: space-between;
-        border-bottom: 1px dashed #e2e8f0;
-        padding-bottom: 4px;
+        font-size: 1.1em; color: #475569; margin-bottom: 5px;
+        display: flex; justify-content: space-between; border-bottom: 1px dashed #e2e8f0; padding-bottom: 4px;
     }
-    .faena-val {
-        font-weight: 700;
-        color: #0f172a;
-    }
+    .faena-val { font-weight: 700; color: #0f172a; }
     .faena-result-box {
-        background-color: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 10px;
-        padding: 15px;
-        text-align: center;
-        margin-top: 20px;
+        background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;
+        padding: 15px; text-align: center; margin-top: 20px;
     }
     
     /* --- SIDEBAR BLANCO PROFESIONAL --- */
@@ -106,7 +97,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-CONFIG_FILE = 'forest_config_v42_faena_update.json'
+CONFIG_FILE = 'forest_config_v43_sim_final.json'
 
 # --- 2. FUNCIONES GLOBALES ---
 
@@ -281,8 +272,8 @@ def init_key(key, default_value):
 
 init_key('price_h', 6500.0)
 init_key('price_f', 5000.0)
-init_key('pct_ind_h', 50.0)
-init_key('pct_ind_f', 50.0)
+init_key('pct_ind_h', 50.0) 
+init_key('pct_ind_f', 50.0) 
 init_key('conv_factor', 2.44)
 init_key('target_company_margin', 30.0)
 init_key('h_days', 28)
@@ -391,7 +382,7 @@ burden_f_dir = tot_f_dir / (f_dias * f_hours) if (f_dias * f_hours) > 0 else 0
 cost_h_hr = burden_h_dir + burden_h_ind
 cost_f_hr = burden_f_dir + burden_f_ind
 
-# Totales P&L ajustados a horas operativas reales
+# Totales P&L ajustados
 cost_h_total_mes_real = cost_h_hr * (h_dias * h_hours)
 cost_f_total_mes_real = cost_f_hr * (f_dias * f_hours)
 cost_total_mes_real = cost_h_total_mes_real + cost_f_total_mes_real
@@ -521,7 +512,7 @@ with tab_strat:
     equiv_m3 = sim_mr * sim_factor
     st.info(f"Equivale a una producción de: **{equiv_m3:,.1f} m³/Hr**")
     
-    # Costo por MR (Usando costo hora real ya calculado)
+    # Costo por MR (Costo Hora Real / Productividad Estimada)
     unit_cost_h = cost_h_hr / sim_mr if sim_mr > 0 else 0
     unit_cost_f = cost_f_hr / sim_mr if sim_mr > 0 else 0
     
@@ -556,7 +547,7 @@ with tab_strat:
         </div>
         """, unsafe_allow_html=True)
 
-# --- TAB FAENA (LOGICA AJUSTADA v42) ---
+# --- TAB FAENA (ACTUALIZADA) ---
 with tab_faena:
     st.header("🧮 Cierre de Faena")
     st.markdown("Ingresa el **Total de Metros Ruma (MR)** de una faena para ver su resultado específico.")
@@ -565,21 +556,18 @@ with tab_faena:
     if mr_lote > 0:
         st.divider()
         
-        # 1. Calculo Tiempo (Total MR / Productividad MR por hora)
-        # Esto nos da las horas máquina que se necesitaron para hacer ese volumen
+        # 1. Calculo Tiempo
         req_hrs_h = mr_lote / mr_h_hr if mr_h_hr > 0 else 0
         req_hrs_f = mr_lote / mr_f_hr if mr_f_hr > 0 else 0
         
-        # Días efectivos (Horas Totales / Horas Turno Maquina)
         req_days_h = req_hrs_h / h_hours if h_hours > 0 else 0
         req_days_f = req_hrs_f / f_hours if f_hours > 0 else 0
         
         # 2. Generado (Venta)
-        # Se usa la tarifa por maquina definida en el sidebar
         rev_lote_h = mr_lote * st.session_state['price_h']
         rev_lote_f = mr_lote * st.session_state['price_f']
         
-        # 3. Costo Real (Horas Reales * Costo Hora Real Calculado)
+        # 3. Costo Real (Costo Hora Total * Horas Requeridas)
         cost_lote_h = req_hrs_h * cost_h_hr
         cost_lote_f = req_hrs_f * cost_f_hr
         
