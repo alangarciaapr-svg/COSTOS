@@ -319,15 +319,3 @@ st.download_button(
     file_name="costos_forestales_faena.csv",
     mime="text/csv",
 )
-```
-
-# requirements_actualizado.txt
-
-```txt
-streamlit
-pandas
-numpy
-plotly
-fpdf
-openpyxl
-```
