@@ -2,7 +2,5 @@ streamlit
 pandas
 numpy
 plotly
-xlsxwriter
-requests
-openpyxl
 fpdf
+openpyxl
